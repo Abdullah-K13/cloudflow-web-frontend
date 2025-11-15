@@ -9,6 +9,8 @@ import { Separator } from "@/components/ui/separator";
 import { Cloud, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import Header from "@/components/layout/Header";
 import Cookies from "js-cookie";
+import { login } from "../services/auth"; // adjust path if needed
+
 
 type LoginResponse = {
   success: boolean;
@@ -32,57 +34,24 @@ const Login = () => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg(null);
-    setLoading(true);
 
-    try {
-      const res = await fetch("http://localhost:8000/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // If your API needs cookies or auth headers, add credentials: 'include'
-        body: JSON.stringify({
-          email: formData.email,
-          password: formData.password,
-        }),
-      });
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setErrorMsg(null);
+  setLoading(true);
 
-      // Handle non-2xx quickly:
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(txt || `Login failed with ${res.status}`);
-      }
+  try {
+    const token = await login(formData.email, formData.password);
 
-      const data: LoginResponse = await res.json();
-      console.log("Login successful:", data);
+    // Redirect to Next.js frontend
+    window.location.href = "http://localhost:3000";
+  } catch (err: any) {
+    setErrorMsg(err.message || "Login failed");
+  } finally {
+    setLoading(false);
+  }
+};
 
-      if (!data.success || !data.api_key || !data.id) {
-        throw new Error("Invalid credentials or malformed response");
-      }
-
-      // NOTE on localhost: do NOT set the 'domain' attribute; most browsers reject Domain=localhost.
-      // Cookies are host-only and will work across ports (8080 → 3000).
-      const cookieOpts: Cookies.CookieAttributes = {
-        path: "/",                 // available across the whole site
-        sameSite: "lax",           // safe default that still sends the cookie on top-level navigation
-        // secure: true,           // enable when you serve over HTTPS
-        ...(formData.rememberMe ? { expires: 7 } : {}), // 7 days if Remember me, otherwise session cookie
-      };
-
-      Cookies.set("user_id", String(data.id), cookieOpts);
-      Cookies.set("api_key", data.api_key, cookieOpts);
-      Cookies.set("name", data.name, cookieOpts);
-
-
-      // Redirect to your Next.js app
-      window.location.href = "http://localhost:3000";
-    } catch (err: any) {
-      setErrorMsg(err?.message || "Login failed. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-background">

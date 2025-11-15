@@ -1,191 +1,261 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import Image from 'next/image';
-import Link from 'next/link';
+import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Cloud, Mail, Lock, Eye, EyeOff } from "lucide-react";
 
-interface FormErrors {
-  email?: string;
-  password?: string;
-}
+type LoginResponse = {
+  access_token: string;
+};
 
-export default function LoginForm() {
+export default function LoginPage() {
+  const router = useRouter();
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   const [formData, setFormData] = useState({
-    email: '',
-    password: '',
+    email: "",
+    password: "",
     rememberMe: false,
   });
 
-  const [errors, setErrors] = useState<FormErrors>({});
-
-  const validateEmail = (email: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+  const handleInputChange = (field: string, value: any) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const validateForm = () => {
-    const newErrors: FormErrors = {};
-
-    if (!formData.email.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!validateEmail(formData.email)) {
-      newErrors.email = 'Please enter a valid email address';
-    }
-
-    if (!formData.password) {
-      newErrors.password = 'Password is required';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value, type, checked } = e.target;
-    setFormData({ 
-      ...formData, 
-      [name]: type === 'checkbox' ? checked : value 
-    });
-    
-    // Clear error when user starts typing
-    if (errors[name as keyof FormErrors]) {
-      setErrors({ ...errors, [name]: undefined });
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (validateForm()) {
-      console.log('Login form submitted:', formData);
-      // Handle successful form submission here
-    }
-  };
+    setErrorMsg(null);
+    setLoading(true);
 
-  const handleGoogleLogin = () => {
-    console.log('Google login clicked');
-    // Handle Google login logic here
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL}/auth/login`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: formData.email,
+            password: formData.password,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        const detail = body?.detail || `Login failed with status ${res.status}`;
+        throw new Error(detail);
+      }
+
+      const data: LoginResponse = await res.json();
+
+      if (!data.access_token) {
+        throw new Error("Malformed response (no token)");
+      }
+
+      localStorage.setItem("access_token", data.access_token);
+      router.push("/landing");
+    } catch (err: any) {
+      setErrorMsg(err?.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="w-full max-w-sm">
-      <div className="text-center mb-6">
-        <h2 className="text-3xl font-bold tracking-tight text-gray-900">
-          Login to your Account
-        </h2>
-        <p className="mt-2 text-xs text-gray-600">
-          See what is going on with your business
-        </p>
-      </div>
-
-      {/* Google Login Button */}
-      <button
-        onClick={handleGoogleLogin}
-        className="w-full flex items-center justify-center gap-3 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors mb-4"
-      >
-        <Image
-          src="/image 2.png"
-          alt="Google"
-          width={18}
-          height={18}
-        />
-        Continue with Google
-      </button>
-
-      {/* Divider */}
-      <div className="relative mb-4">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-gray-300" />
-        </div>
-        <div className="relative flex justify-center text-xs">
-          <span className="bg-white px-2 text-gray-500">or Sign in with Email</span>
-        </div>
-      </div>
-
-      <form className="space-y-3" onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="email" className="block text-xs font-medium text-gray-700 mb-1">
-            Email
-          </label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            required
-            className={`block w-full rounded-md border px-3 py-1.5 text-gray-900 placeholder-gray-500 focus:z-10 focus:border-gray-500 focus:outline-none focus:ring-gray-500 text-xs ${
-              errors.email ? 'border-red-300' : 'border-gray-300'
-            }`}
-            placeholder="Email address"
-            value={formData.email}
-            onChange={handleChange}
-          />
-          {errors.email && (
-            <p className="mt-1 text-xs text-red-600">{errors.email}</p>
-          )}
-        </div>
-
-        <div>
-          <label htmlFor="password" className="block text-xs font-medium text-gray-700 mb-1">
-            Password
-          </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            className={`block w-full rounded-md border px-3 py-1.5 text-gray-900 placeholder-gray-500 focus:z-10 focus:border-gray-500 focus:outline-none focus:ring-gray-500 text-xs ${
-              errors.password ? 'border-red-300' : 'border-gray-300'
-            }`}
-            placeholder="Password"
-            value={formData.password}
-            onChange={handleChange}
-          />
-          {errors.password && (
-            <p className="mt-1 text-xs text-red-600">{errors.password}</p>
-          )}
-        </div>
-
-        {/* Remember Me and Forgot Password */}
-        <div className="flex items-center justify-between text-xs">
-          <div className="flex items-center">
-            <input
-              id="rememberMe"
-              name="rememberMe"
-              type="checkbox"
-              className="h-3 w-3 rounded border-gray-300 text-gray-600 focus:ring-gray-500"
-              checked={formData.rememberMe}
-              onChange={handleChange}
-            />
-            <label htmlFor="rememberMe" className="ml-2 text-gray-700">
-              Remember Me
-            </label>
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Header */}
+      <header className="border-b border-border bg-card/95 backdrop-blur-sm">
+        <div className="max-w-5xl mx-auto flex items-center justify-between h-16 px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center space-x-2">
+            <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
+              <Cloud className="h-5 w-5 text-primary" />
+            </div>
+            <span className="text-lg font-semibold text-foreground">
+              CloudFlow
+            </span>
           </div>
-          <Link href="/forgot-password" className="text-gray-600 hover:text-gray-800">
-            Forgot Password?
-          </Link>
-        </div>
 
-        <div className="pt-4">
-          <button
-            type="submit"
-            className="group relative flex w-full justify-center rounded-md border border-transparent bg-gray-800 py-1.5 px-4 text-sm font-medium text-white hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
-          >
-            Login
-          </button>
+          <div className="flex items-center space-x-3">
+            <Link href="/login" className="text-sm text-muted-foreground hover:text-foreground">
+              Sign In
+            </Link>
+            <Link
+              href="/signup"
+              className="inline-flex items-center rounded-md px-3 py-1.5 text-sm font-medium bg-primary text-primary-foreground hover:opacity-90"
+            >
+              Get Started
+            </Link>
+          </div>
         </div>
-      </form>
+      </header>
 
-      {/* Create Account Link */}
-      <div className="text-center mt-6">
-        <p className="text-xs text-gray-600">
-          Not Registered Yet?{' '}
-          <Link href="/signup" className="font-medium text-gray-800 hover:text-gray-600">
-            Create an account
-          </Link>
-        </p>
-      </div>
+      {/* MAIN SECTION */}
+      <main className="flex-1 flex items-center justify-center py-12 px-4">
+        <div className="w-full max-w-md">
+          <div className="rounded-xl border border-border bg-card shadow-custom">
+            {/* Card Header */}
+            <div className="px-6 pt-6 pb-4 text-center">
+              <div className="flex justify-center mb-4">
+                <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Cloud className="h-6 w-6 text-primary" />
+                </div>
+              </div>
+              <h1 className="text-2xl font-bold">Welcome back</h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Sign in to your CloudFlow account
+              </p>
+            </div>
+
+            {/* Card Content */}
+            <div className="px-6 pb-6">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Email */}
+                <div className="space-y-2">
+                  <label
+                    htmlFor="email"
+                    className="block text-sm font-medium text-foreground"
+                  >
+                    Email address
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <input
+                      id="email"
+                      type="email"
+                      className="w-full rounded-md border border-input bg-background px-10 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="you@company.com"
+                      value={formData.email}
+                      onChange={(e) =>
+                        handleInputChange("email", e.target.value)
+                      }
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Password */}
+                <div className="space-y-2">
+                  <label
+                    htmlFor="password"
+                    className="block text-sm font-medium text-foreground"
+                  >
+                    Password
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      className="w-full rounded-md border border-input bg-background px-10 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="Enter your password"
+                      value={formData.password}
+                      onChange={(e) =>
+                        handleInputChange("password", e.target.value)
+                      }
+                      required
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Remember me */}
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center space-x-2 text-sm text-muted-foreground cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border border-input focus:ring-primary"
+                      checked={formData.rememberMe}
+                      onChange={(e) =>
+                        handleInputChange("rememberMe", e.target.checked)
+                      }
+                    />
+                    <span>Remember me</span>
+                  </label>
+
+                  <Link
+                    href="/forgot-password"
+                    className="text-sm text-accent hover:text-accent-hover"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+
+                {/* Error */}
+                {errorMsg && (
+                  <div className="text-sm text-red-600 bg-red-50 border border-red-200 p-2 rounded">
+                    {errorMsg}
+                  </div>
+                )}
+
+                {/* Submit */}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
+                >
+                  {loading ? "Signing in..." : "Sign In"}
+                </button>
+              </form>
+
+              {/* Divider */}
+              <div className="my-6">
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-border" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-card px-2 text-muted-foreground">
+                      Or continue with
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Social Buttons */}
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  className="w-full inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground"
+                >
+                  Continue with Google
+                </button>
+
+                <button
+                  type="button"
+                  className="w-full inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground"
+                >
+                  Continue with Microsoft
+                </button>
+              </div>
+
+              <p className="text-center text-sm text-muted-foreground mt-6">
+                Don't have an account?{" "}
+                <Link
+                  href="/signup"
+                  className="text-accent hover:text-accent-hover font-medium"
+                >
+                  Create one here
+                </Link>
+              </p>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
