@@ -1,111 +1,221 @@
-// app/(dashboard)/templates/page.tsx
-import type { Metadata } from "next";
-import TemplatesClient, { Template } from "@/src/app/components/templates-client";
+// src/app/templates/page.tsx
+"use client";
 
-export const metadata: Metadata = {
-  title: "Templates",
-  description: "Browse, preview, and start from ready-made architectures",
-};
+import { useEffect, useState } from "react";
+import axios from "axios";
 
-// const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
-
-// Shape returned by FastAPI /api/templates
-type ApiTemplateCard = {
+type TemplateSummary = {
   id: string;
   name: string;
-  summary?: string | null;
-  tags: string[];
-  providers: Array<"aws" | "gcp" | "azure">;
-  lastUpdated?: string | null;
+  description?: string;
+  // add whatever your backend returns
 };
 
-// --- MOCK DATA ---
-const mockTemplates: Template[] = [
-  {
-    id: "tmpl-aws-001",
-    name: "AWS Lambda Microservice",
-    description: "Serverless microservice setup using AWS Lambda and API Gateway.",
-    tags: ["serverless", "microservice", "aws"],
-    lastUpdated: "2025-10-30",
-  },
-  {
-    id: "tmpl-gcp-001",
-    name: "GCP Data Pipeline",
-    description: "End-to-end data pipeline using Cloud Storage, Dataflow, and BigQuery.",
-    tags: ["data", "pipeline", "gcp"],
-    lastUpdated: "2025-09-22",
-  },
-  {
-    id: "tmpl-azure-001",
-    name: "Azure Web App Deployment",
-    description: "CI/CD-ready web app with Azure App Service and Container Registry.",
-    tags: ["webapp", "azure", "devops"],
-    lastUpdated: "2025-08-15",
-  },
-];
+type TemplateDetail = {
+  id: string;
+  name: string;
+  description?: string;
+  variables_schema?: Record<string, any>;
+  // etc...
+};
 
-// --- keep for later ---
-/*
-async function fetchTemplates(params?: {
-  q?: string;
-  tag?: string;
-  category?: string;
-  provider?: "aws" | "gcp" | "azure";
-}): Promise<Template[]> {
-  const qs = new URLSearchParams();
-  if (params?.q) qs.set("q", params.q);
-  if (params?.tag) qs.set("tag", params.tag);
-  if (params?.category) qs.set("category", params.category);
-  if (params?.provider) qs.set("provider", params.provider);
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
 
-  const url = `${API_BASE}/api/templates${qs.toString() ? `?${qs.toString()}` : ""}`;
+export default function TemplatesPage() {
+  const [templates, setTemplates] = useState<TemplateSummary[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplateDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [deployLoading, setDeployLoading] = useState(false);
+  const [destroyLoading, setDestroyLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) {
-    console.error("Failed to fetch templates:", res.status, await res.text());
-    return [];
+  // Example deploy variables (could be a form later)
+  const [deployVars, setDeployVars] = useState<Record<string, any>>({});
+
+  const getAuthHeaders = () => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
+  // 1) GET /templates  → list
+  const fetchTemplates = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const res = await axios.get<TemplateSummary[]>(`${API_BASE}/templates`, {
+        headers: {
+          ...getAuthHeaders(),
+        },
+      });
+
+      setTemplates(res.data);
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.response?.data?.detail || "Failed to load templates");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 2) GET /templates/{id} → detail
+  const fetchTemplateDetails = async (id: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const res = await axios.get<TemplateDetail>(`${API_BASE}/templates/${id}`, {
+        headers: {
+          ...getAuthHeaders(),
+        },
+      });
+
+      setSelectedTemplate(res.data);
+      // You could also initialize deployVars here based on res.data.variables_schema
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.response?.data?.detail || "Failed to load template details");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 3) POST /templates/deploy
+  const handleDeploy = async () => {
+    if (!selectedTemplate) return;
+    try {
+      setDeployLoading(true);
+      setError(null);
+
+      const res = await axios.post(
+        `${API_BASE}/templates/deploy`,
+        {
+          template_id: selectedTemplate.id,
+          variables: deployVars,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
+        }
+      );
+
+      console.log("Deploy result:", res.data);
+      alert("Deployment started / succeeded (check logs)");
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.response?.data?.detail || "Failed to deploy template");
+    } finally {
+      setDeployLoading(false);
+    }
+  };
+
+  // 4) POST /templates/destroy
+  const handleDestroy = async () => {
+    if (!selectedTemplate) return;
+    try {
+      setDestroyLoading(true);
+      setError(null);
+
+      const res = await axios.post(
+        `${API_BASE}/templates/destroy`,
+        {
+          template_id: selectedTemplate.id,
+          variables: deployVars,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
+        }
+      );
+
+      console.log("Destroy result:", res.data);
+      alert("Destroy started / succeeded (check logs)");
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.response?.data?.detail || "Failed to destroy template");
+    } finally {
+      setDestroyLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTemplates();
+  }, []);
+
+  if (loading && !templates.length && !selectedTemplate) {
+    return <div className="p-4">Loading templates...</div>;
   }
 
-  const data = (await res.json()) as ApiTemplateCard[];
-  return data.map((t) => ({
-    id: t.id,
-    name: t.name,
-    description: t.summary ?? "",
-    tags: t.tags,
-    lastUpdated: t.lastUpdated ?? undefined,
-  }));
-}
-*/
-
-// Resolve a possibly-array value from searchParams
-function pickFirst(val: string | string[] | undefined): string | undefined {
-  if (Array.isArray(val)) return val[0];
-  return val;
-}
-
-// NOTE: searchParams is a Promise in Next.js 15+ app router
-export default async function TemplatesPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const sp = await searchParams;
-
-  // For now, skip API call and use mock data
-  // const templates = await fetchTemplates({
-  //   q: pickFirst(sp.q),
-  //   tag: pickFirst(sp.tag),
-  //   category: pickFirst(sp.category),
-  //   provider: pickFirst(sp.provider) as "aws" | "gcp" | "azure" | undefined,
-  // });
-
-  const templates = mockTemplates;
-
   return (
-    <main className="min-h-screen bg-white pl-16">
-      <div className="mx-auto w-full max-w-7xl p-6">
-        <TemplatesClient initialData={templates} />
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">Templates</h1>
+
+      {error && <div className="p-3 border border-red-500 text-red-600 rounded">{error}</div>}
+
+      {/* Templates list */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {templates.map((t) => (
+          <button
+            key={t.id}
+            className="border rounded-lg p-4 text-left hover:bg-gray-50"
+            onClick={() => fetchTemplateDetails(t.id)}
+          >
+            <div className="font-medium">{t.name}</div>
+            {t.description && (
+              <p className="text-sm text-gray-500 mt-1">{t.description}</p>
+            )}
+          </button>
+        ))}
       </div>
-    </main>
+
+      {/* Selected template + actions */}
+      {selectedTemplate && (
+        <div className="mt-6 border rounded-lg p-4 space-y-3">
+          <h2 className="text-xl font-semibold">Selected: {selectedTemplate.name}</h2>
+          {selectedTemplate.description && (
+            <p className="text-gray-600">{selectedTemplate.description}</p>
+          )}
+
+          {/* Super basic deploy vars as JSON (you’ll replace with proper form later) */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium">Deploy Variables (JSON)</label>
+            <textarea
+              className="w-full border rounded p-2 text-sm font-mono"
+              rows={4}
+              value={JSON.stringify(deployVars, null, 2)}
+              onChange={(e) => {
+                try {
+                  const parsed = JSON.parse(e.target.value || "{}");
+                  setDeployVars(parsed);
+                } catch {
+                  // ignore invalid JSON while typing
+                }
+              }}
+            />
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={handleDeploy}
+              disabled={deployLoading}
+              className="px-4 py-2 rounded bg-green-600 text-white disabled:opacity-60"
+            >
+              {deployLoading ? "Deploying..." : "Deploy"}
+            </button>
+            <button
+              onClick={handleDestroy}
+              disabled={destroyLoading}
+              className="px-4 py-2 rounded bg-red-600 text-white disabled:opacity-60"
+            >
+              {destroyLoading ? "Destroying..." : "Destroy"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
