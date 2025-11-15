@@ -20,9 +20,8 @@ export async function login(email, password) {
     if (!data?.access_token) {
       throw new Error("Invalid response from server (no access_token)");
     }
-
-    // Store token so apiClient interceptors can attach it
-    Storage.set("token", data.access_token);
+    console.log("Login successful:", res);
+    document.cookie = `access_token=${data.access_token}; path=/; samesite=lax`;
 
     return data.access_token;
   } catch (error) {
