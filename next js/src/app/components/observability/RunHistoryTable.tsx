@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { RunHistoryItem, getRunHistory, FilterOptions } from '@/src/app/actions/observability-api';
+import { RunHistoryItem, getRunHistory, FilterOptions } from '@/app/actions/observability-api';
 
 const RUN_TYPES = [
   'Scheduled',

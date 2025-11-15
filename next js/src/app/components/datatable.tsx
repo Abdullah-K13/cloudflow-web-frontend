@@ -8,7 +8,7 @@ import {
   getProjects, getPipelines, getModels,
   deleteProject, deletePipeline, deleteModel,
   type Project, type Pipeline, type Model
-} from '@/src/app/actions/data_actions';
+} from '@/app/actions/data_actions';
 
 type Section = 'projects' | 'pipelines' | 'models';
 type DataItem = Project | Pipeline | Model;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ScheduledPipeline, getScheduledPipelines } from '@/src/app/actions/observability-api';
+import { ScheduledPipeline, getScheduledPipelines } from '@/app/actions/observability-api';
 
 export default function ScheduledPipelinesTable() {
   const [pipelines, setPipelines] = useState<ScheduledPipeline[]>([]);

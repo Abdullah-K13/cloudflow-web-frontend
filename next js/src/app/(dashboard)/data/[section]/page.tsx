@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   Plus, Search, Filter, ChevronDown, ExternalLink, Cloud, ArrowUpDown,
 } from "lucide-react";
-import type { Pipeline } from "@/src/app/actions/data_actions";
+import type { Pipeline } from "@/app/actions/data_actions";
 
 type Props = { initialData?: Pipeline[] }; // <- optional
 

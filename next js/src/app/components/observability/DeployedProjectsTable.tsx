@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { DeployedProject, getDeployedProjects } from '@/src/app/actions/observability-api';
+import { DeployedProject, getDeployedProjects } from '@/app/actions/observability-api';
 
 export default function DeployedProjectsTable() {
   const [projects, setProjects] = useState<DeployedProject[]>([]);
