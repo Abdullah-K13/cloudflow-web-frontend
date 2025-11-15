@@ -1,0 +1,44 @@
+
+{
+  "project": "canvas-project",
+  "env": "dev",
+  "region": "ap-southeast-2",
+  "nodes": [
+    {
+      "id": "s3_1",
+      "kind": "aws.s3",
+      "name": "images-bucket",
+      "props": { "versioning": true, "eventBridge": true }
+    },
+    {
+      "id": "rule_1",
+      "kind": "aws.events.rule",
+      "name": "s3-object-created-rule",
+      "props": {
+        "pattern": {
+          "source": ["aws.s3"],
+          "detail_type": ["Object Created"],
+          "detail": {
+            "bucket": { "name": ["images-bucket"] }
+          }
+        }
+      }
+    },
+    {
+      "id": "lambda_1",
+      "kind": "aws.lambda",
+      "name": "eventbridge-processor-fn",
+      "props": {
+        "runtime": "python3.12",
+        "memory": 256,
+        "timeout": 30,
+        "handler": "app.lambda_handler",
+        "codeUri": "src/processor"
+      }
+    }
+  ],
+  "edges": [
+    { "from": "s3_1", "to": "rule_1", "intent": "notify" },
+    { "from": "rule_1", "to": "lambda_1", "intent": "notify" }
+  ]
+}
