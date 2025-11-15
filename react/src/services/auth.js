@@ -40,13 +40,17 @@ export async function login(email, password) {
 /**
  * SIGNUP
  * POST /auth/register
- * body: { email, password }
+ * body: { email, password, role }
  * response: { access_token: string }
  * - stores access_token in Storage under "token"
  */
-export async function signup(email, password) {
+export async function signup(email, password, role) {
   try {
-    const res = await client.post("/auth/register", { email, password });
+    const res = await client.post("/auth/register", {
+      email,
+      password,
+      role,
+    });
 
     const data = res.data;
     if (!data?.access_token) {
@@ -54,19 +58,39 @@ export async function signup(email, password) {
     }
 
     Storage.set("token", data.access_token);
-
     return data.access_token;
-  } catch (error) {
+    } catch (error) {
     if (error.response) {
-      const msg =
-        error.response.data?.detail ||
-        error.response.data?.message ||
-        `Signup failed (${error.response.status})`;
+      const detail = error.response.data?.detail;
+      let msg;
+
+      if (Array.isArray(detail)) {
+        // FastAPI validation errors come as a list
+        msg = detail
+          .map((d) => {
+            const loc = Array.isArray(d.loc) ? d.loc.join(".") : "";
+            return loc ? `${loc}: ${d.msg}` : d.msg;
+          })
+          .join(" | ");
+      } else if (typeof detail === "string") {
+        msg = detail;
+      } else if (detail && typeof detail === "object") {
+        msg = JSON.stringify(detail);
+      } else {
+        msg =
+          error.response.data?.message ||
+          `Signup failed (${error.response.status})`;
+      }
+
+      console.error("Signup failed:", error.response.data);
       throw new Error(msg);
     }
     throw new Error(error.message || "Signup failed");
   }
 }
+
+
+
 
 /**
  * Optional: get current user using /auth/me
