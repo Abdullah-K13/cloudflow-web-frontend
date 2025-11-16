@@ -1,4 +1,6 @@
-import { Link } from "react-router-dom";
+"use client";
+
+import Link from "next/link";
 import { Cloud, Github, Twitter, Linkedin, Mail } from "lucide-react";
 
 const Footer = () => {
@@ -55,7 +57,7 @@ const Footer = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-8">
           {/* Logo and Description */}
           <div className="lg:col-span-2">
-            <Link to="/" className="flex items-center space-x-2 mb-4">
+            <Link href="/" className="flex items-center space-x-2 mb-4">
               <Cloud className="h-8 w-8 text-primary" />
               <span className="text-xl font-semibold text-foreground">CloudFlow</span>
             </Link>
@@ -89,7 +91,7 @@ const Footer = () => {
                 {section.links.map((link) => (
                   <li key={link.name}>
                     <Link
-                      to={link.href}
+                      href={link.href}
                       className="text-sm text-muted-foreground hover:text-primary transition-smooth"
                     >
                       {link.name}
