@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import WorkplaceClient from "@/src/app/components/workplace-client";
+import WorkplaceClient from "@/components/workplace-client";
 
 export const metadata: Metadata = {
   title: "Workplace - AWS Architecture Builder",

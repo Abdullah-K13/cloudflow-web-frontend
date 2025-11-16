@@ -17,7 +17,7 @@ import {
   FileText,
   Loader2,
 } from "lucide-react";
-import type { Pipeline } from "@/src/app/actions/data_actions";
+import type { Pipeline } from "@/app/actions/data_actions";
 
 // Raw API shape (from FastAPI /pipelines)
 type PipelineApiResponse = {

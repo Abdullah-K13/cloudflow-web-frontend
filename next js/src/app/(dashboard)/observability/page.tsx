@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import ObservabilityClient, { Deployment } from "@/src/app/components/observability-client";
+import ObservabilityClient, { Deployment } from "@/components/observability-client";
 
 export const metadata: Metadata = {
   title: "Observability",

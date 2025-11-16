@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import DashboardClient from "@/src/app/components/dashboard-client";
+import DashboardClient from "@/components/dashboard-client";
 
 export const metadata: Metadata = {
   title: "Dashboard - AWS Architecture Builder",
