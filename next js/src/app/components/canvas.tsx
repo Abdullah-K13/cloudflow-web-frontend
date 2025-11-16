@@ -121,46 +121,75 @@ const gridSize = 60;
 
 /* ---------- types for your internal plan builder (kept) ---------- */
 type PlanNodeType = "s3" | "sqs" | "lambda" | "dynamodb" | "apigateway" | "sns" | "other";
-type PlanEdgeType = `${PlanNodeType}_to_${PlanNodeType}`;
-type PlanNode = { id: string; type: PlanNodeType; name: string; props?: Record<string, any> };
+// Extend known types to align with CAPABILITIES.md (optional types included)
+type ExtendedPlanNodeType =
+  | PlanNodeType
+  | "events_rule"
+  | "sfn"
+  | "kinesis";
+type PlanEdgeType = `${ExtendedPlanNodeType}_to_${ExtendedPlanNodeType}`;
+type PlanNode = { id: string; type: ExtendedPlanNodeType; name: string; props?: Record<string, any> };
 type PlanEdge = { type: PlanEdgeType; from: string; to: string; props?: Record<string, any> };
 type Plan = { awsRegion: string; variables?: Record<string, string>; nodes: PlanNode[]; edges: PlanEdge[] };
 
-const TYPE_MAP: Record<string, PlanNodeType> = {
+const TYPE_MAP: Record<string, ExtendedPlanNodeType> = {
   s3: "s3",
   sqs: "sqs",
   lambda: "lambda",
   dynamodb: "dynamodb",
   apigateway: "apigateway",
   sns: "sns",
+  // Optional/Planned
+  kinesis: "kinesis",
+  sfn: "sfn",
+  events: "events_rule",
+  "events.rule": "events_rule",
   rds: "other",
   ec2: "other",
-  kinesis: "other",
   cloudfront: "other",
 };
 
-const classifyEdge = (src: PlanNodeType, tgt: PlanNodeType): PlanEdgeType => `${src}_to_${tgt}` as PlanEdgeType;
+const classifyEdge = (src: ExtendedPlanNodeType, tgt: ExtendedPlanNodeType): PlanEdgeType =>
+  `${src}_to_${tgt}` as PlanEdgeType;
 
 /* --------------------- helpers (kept/adjusted) --------------------- */
 
 // map your node "type" → desired backend "kind"
-const KIND_MAP: Record<PlanNodeType, string> = {
+const KIND_MAP: Record<ExtendedPlanNodeType, string> = {
   s3: "aws.s3",
   sqs: "aws.sqs",
   lambda: "aws.lambda",
   dynamodb: "aws.dynamodb",
-  apigateway: "aws.apigw.http",
+  apigateway: "aws.apigw",
   sns: "aws.sns",
+  events_rule: "aws.events.rule",
+  sfn: "aws.sfn",
+  kinesis: "aws.kinesis",
   other: "aws.other",
 };
 
 // friendly label (not used by backend payload now, but handy for debugging)
-function inferEdgeKind(src: PlanNodeType, tgt: PlanNodeType): string {
-  if (src === "s3" && tgt === "sqs") return "publish";
-  if (src === "sqs" && tgt === "lambda") return "trigger";
-  if (src === "lambda" && tgt === "s3") return "write";
+function computeIntent(src: ExtendedPlanNodeType, tgt: ExtendedPlanNodeType): "notify" | "consume" | "invoke" | "read" | "write" | "deliver" {
+  // S3
+  if (src === "s3" && (tgt === "sqs" || tgt === "lambda" || tgt === "sns" || tgt === "events_rule")) return "notify";
+  // SNS
+  if (src === "sns" && (tgt === "lambda" || tgt === "sqs")) return "deliver";
+  // SQS
+  if (src === "sqs" && tgt === "lambda") return "consume";
+  // EventBridge Rule
+  if (src === "events_rule" && tgt === "lambda") return "notify";
+  // API Gateway
   if (src === "apigateway" && tgt === "lambda") return "invoke";
-  return "connect";
+  // DynamoDB Streams
+  if (src === "dynamodb" && tgt === "lambda") return "consume";
+  // Lambda to DynamoDB grants
+  if (src === "lambda" && tgt === "dynamodb") return "write"; // default to write; user can add read via separate edge
+  // Step Functions
+  if (src === "lambda" && tgt === "sfn") return "invoke";
+  // Kinesis
+  if (src === "kinesis" && tgt === "lambda") return "consume";
+  // Fallback
+  return "notify";
 }
 
 // minimal props normalization for UI → payload mapping
@@ -180,6 +209,49 @@ function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
       versioning: d.versioning !== undefined ? !!d.versioning : true,
       // turn on EventBridge if the bucket has any outgoing edges (we set this later)
       eventBridge: !!d.eventBridge,
+    };
+  }
+  if (kind === "aws.sqs") {
+    return {
+      visibilityTimeout: Number(d.visibilityTimeout ?? 60),
+      dlq: d.dlq ?? undefined,
+      physicalName: d.physicalName ?? undefined,
+    };
+  }
+  if (kind === "aws.sns") {
+    return {
+      displayName: d.displayName ?? undefined,
+      physicalName: d.physicalName ?? undefined,
+    };
+  }
+  if (kind === "aws.events.rule") {
+    return {
+      pattern: d.pattern ?? undefined,
+    };
+  }
+  if (kind === "aws.apigw") {
+    return {
+      apiName: d.apiName ?? undefined,
+    };
+  }
+  if (kind === "aws.dynamodb") {
+    return {
+      partitionKey: d.partitionKey ?? "pk",
+      sortKey: d.sortKey ?? undefined,
+      billing: d.billing ?? "PAY_PER_REQUEST",
+      stream: d.stream !== undefined ? !!d.stream : true,
+      physicalName: d.physicalName ?? undefined,
+    };
+  }
+  if (kind === "aws.sfn") {
+    return {
+      physicalName: d.physicalName ?? undefined,
+    };
+  }
+  if (kind === "aws.kinesis") {
+    return {
+      shards: d.shards ?? 1,
+      physicalName: d.physicalName ?? undefined,
     };
   }
   // pass-through for others
@@ -384,7 +456,7 @@ const CanvasInner = (
 
   /* ----------------- NEW: build desired /deploy payload ----------------- */
   type DeployNode = { id: string; kind: string; name: string; props: Record<string, any> };
-  type DeployEdge = { from: string; to: string; intent: "notify" };
+  type DeployEdge = { from: string; to: string; intent: "notify" | "consume" | "invoke" | "read" | "write" | "deliver"; path?: string; method?: string; batchSize?: number };
   type DeployPayload = {
     project: string;
     env: string;
@@ -423,11 +495,29 @@ const CanvasInner = (
       };
     });
 
-    const edges: DeployEdge[] = plan.edges.map((pe) => ({
-      from: pe.from, // use node IDs
-      to: pe.to,
-      intent: "notify",
-    }));
+    const indexById = Object.fromEntries(plan.nodes.map((n) => [n.id, n]));
+
+    const edges: DeployEdge[] = plan.edges.map((pe) => {
+      const src = indexById[pe.from];
+      const tgt = indexById[pe.to];
+      const intent = computeIntent(src?.type as ExtendedPlanNodeType, tgt?.type as ExtendedPlanNodeType);
+
+      const edge: DeployEdge = { from: pe.from, to: pe.to, intent };
+
+      // API Gateway -> Lambda supports path/method on the edge
+      if (src?.type === "apigateway" && tgt?.type === "lambda") {
+        edge.path = (pe.props as any)?.path || "/";
+        edge.method = (pe.props as any)?.method || "ANY";
+      }
+
+      // SQS/DynamoDB/Kinesis Streams to Lambda may support batchSize
+      if ((src?.type === "sqs" || src?.type === "dynamodb" || src?.type === "kinesis") && tgt?.type === "lambda") {
+        const batchSize = Number((pe.props as any)?.batchSize ?? NaN);
+        if (!Number.isNaN(batchSize)) edge.batchSize = batchSize;
+      }
+
+      return edge;
+    });
 
     return { project, env, region, nodes, edges };
   }
@@ -453,9 +543,10 @@ const CanvasInner = (
   };
 
   /* ----------------- API helpers ----------------- */
-  const API_BASE = process.env.NEXT_PUBLIC_API || "http://localhost:8000";
+  const API_BASE = process.env.NEXT_PUBLIC_API || "http://localhost:8000/aws";
 
   const [deploying, setDeploying] = useState(false);
+  const [compiling, setCompiling] = useState(false);
 
   /* ----------------- NEW: deploy via /deploy (single POST, no auth) ----------------- */
   const handleDeploy = async () => {
@@ -494,6 +585,42 @@ const CanvasInner = (
     }
   };
 
+  const handleCompile = async () => {
+    try {
+      setCompiling(true);
+
+      const plan = buildPlan();
+      const payload = buildDeploymentPayload(plan);
+
+      const res = await fetch(`${API_BASE}/compile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const text = await res.text().catch(() => "");
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        /* keep raw text */
+      }
+
+      if (!res.ok) {
+        const msg = data?.detail || data?.error || text || `Compile failed (${res.status})`;
+        throw new Error(msg);
+      }
+
+      console.log("Compile ok:", data || text);
+      alert("Compiled successfully (CDK synth).");
+    } catch (e: any) {
+      console.error("Compile error:", e?.message || e);
+      alert(e?.message || "Something went wrong while compiling.");
+    } finally {
+      setCompiling(false);
+    }
+  };
+
   useImperativeHandle(ref, () => ({
     getPlan: () => buildPlan(),
     getPrompt: () => buildPrompt(buildPlan()),
@@ -508,7 +635,7 @@ const CanvasInner = (
   }, [currentServices, search]);
 
   return (
-    <div className="w-full h-full flex">
+    <div className="w-full h-full flex min-h-0">
       {/* Canvas area */}
       <div className="flex-1 relative" ref={reactFlowWrapper}>
         <ReactFlow
@@ -557,7 +684,7 @@ const CanvasInner = (
 
       {/* ===== New Right-side Palette Panel ================================== */}
       <aside
-        className="w-[320px] shrink-0 border-l border-gray-200 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60 flex flex-col"
+        className="w-[320px] shrink-0 border-l border-gray-200 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60 flex flex-col h-full min-h-0"
         aria-label="Cloud services palette"
       >
          {/* Actions */}
@@ -590,7 +717,22 @@ const CanvasInner = (
                     }
                     return { id: pn.id, kind, name: pn.name, props };
                   });
-                  const edges = _p.edges.map((pe) => ({ from: pe.from, to: pe.to, intent: "notify" as const }));
+                  const indexById = Object.fromEntries(_p.nodes.map((n) => [n.id, n]));
+                  const edges = _p.edges.map((pe) => {
+                    const src = indexById[pe.from] as PlanNode | undefined;
+                    const tgt = indexById[pe.to] as PlanNode | undefined;
+                    const intent = computeIntent(src?.type as ExtendedPlanNodeType, tgt?.type as ExtendedPlanNodeType);
+                    const edge: any = { from: pe.from, to: pe.to, intent };
+                    if (src?.type === "apigateway" && tgt?.type === "lambda") {
+                      edge.path = (pe.props as any)?.path || "/";
+                      edge.method = (pe.props as any)?.method || "ANY";
+                    }
+                    if ((src?.type === "sqs" || src?.type === "dynamodb" || src?.type === "kinesis") && tgt?.type === "lambda") {
+                      const batchSize = Number((pe.props as any)?.batchSize ?? NaN);
+                      if (!Number.isNaN(batchSize)) edge.batchSize = batchSize;
+                    }
+                    return edge;
+                  });
                   return { project, env, region, nodes, edges };
                 })(_plan);
               })();
@@ -600,6 +742,22 @@ const CanvasInner = (
             title="Print Prompt"
           >
             Print Prompt
+          </button>
+
+          <button
+            type="button"
+            onClick={handleCompile}
+            disabled={compiling}
+            className={[
+              "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+              "bg-amber-600 text-white hover:bg-amber-700",
+              "focus:outline-none focus:ring-4 focus:ring-amber-200/70",
+              "disabled:opacity-60 disabled:cursor-not-allowed",
+              "shadow-sm transition-all",
+            ].join(" ")}
+            title="Compile (CDK synth)"
+          >
+            {compiling ? "Compiling…" : "Compile"}
           </button>
 
           <button
@@ -672,7 +830,7 @@ const CanvasInner = (
         </div>
 
         {/* Services list */}
-        <div className="flex-1 overflow-auto p-3 space-y-2">
+        <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
           {filteredServices.map((service) => (
             <div
               key={`${provider}-${service.id}-${service.label}`}
