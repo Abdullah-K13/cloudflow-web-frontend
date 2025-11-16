@@ -5,7 +5,7 @@ import { apiClient } from "./apiClient";
  * POST /auth/login
  * body: { email, password }
  * response: { access_token: string }
- * - stores access_token in cookie
+ * - stores access_token in cookie and localStorage (token-only, no user data cookies)
  */
 export async function login(email: string, password: string): Promise<string> {
   try {
@@ -43,7 +43,7 @@ export async function login(email: string, password: string): Promise<string> {
  * POST /auth/register
  * body: { email, password, role }
  * response: { access_token: string }
- * - stores access_token in cookie
+ * - stores access_token in cookie and localStorage (token-only, no user data cookies)
  */
 export async function signup(
   email: string,

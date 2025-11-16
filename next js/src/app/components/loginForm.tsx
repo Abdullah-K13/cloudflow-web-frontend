@@ -37,8 +37,8 @@ const Login = () => {
     try {
       const token = await login(formData.email, formData.password);
 
-      // Redirect to landing page
-      router.push("/landing");
+      // Redirect to dashboard (root route)
+      router.push("/");
     } catch (err: any) {
       setErrorMsg(err.message || "Login failed");
     } finally {
