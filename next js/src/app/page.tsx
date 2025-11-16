@@ -65,7 +65,7 @@ export default function LandingPage() {
       <section className="hero-section flex items-center justify-center py-20 px-4">
         <div className="container mx-auto text-center">
           <div className="max-w-4xl mx-auto">
-            <Badge variant="secondary" className="mb-6 text-sm px-4 py-2">
+            <Badge variant="secondary" className="mb-6 text-sm px-4 py-2 text-white">
               <Zap className="w-4 h-4 mr-2" />
               Now with Auto-Terraform Generation
             </Badge>
@@ -87,7 +87,7 @@ export default function LandingPage() {
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Link>
               </Button>
-              <Button variant="outline" size="lg" className="btn-ghost text-lg px-8 py-6" asChild>
+              <Button variant="outline" size="lg" className="btn-use-template text-lg px-8 py-6" asChild>
                 <Link href="/templates">
                   View Templates
                 </Link>
@@ -198,7 +198,7 @@ export default function LandingPage() {
                     <div className="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center">
                       <template.icon className="h-5 w-5 text-secondary" />
                     </div>
-                    <Badge variant="secondary" className="text-xs">{template.badge}</Badge>
+                    <Badge variant="secondary" className="text-xs text-white">{template.badge}</Badge>
                   </div>
                   <CardTitle className="text-lg">{template.title}</CardTitle>
                 </CardHeader>
@@ -206,7 +206,7 @@ export default function LandingPage() {
                   <CardDescription className="mb-4">
                     {template.description}
                   </CardDescription>
-                  <Button variant="outline" size="sm" className="w-full btn-ghost">
+                  <Button variant="outline" size="sm" className="w-full btn-use-template">
                     Use Template
                   </Button>
                 </CardContent>
@@ -215,7 +215,7 @@ export default function LandingPage() {
           </div>
           
           <div className="text-center mt-12">
-            <Button variant="outline" size="lg" className="btn-ghost" asChild>
+            <Button variant="outline" size="lg" className="btn-use-template" asChild>
               <Link href="/templates">
                 View All Templates
                 <ArrowRight className="ml-2 h-4 w-4" />

@@ -140,7 +140,7 @@
   
   /* Card hover effects */
   .card-hover {
-    transition: var(--transition-smooth);
+    transition: transform var(--transition-smooth), box-shadow var(--transition-smooth);
   }
   
   .card-hover:hover {
@@ -156,7 +156,8 @@
   }
   
   .btn-primary:hover {
-    background-color: hsl(var(--primary) / 0.9);
+    background-color: hsl(var(--primary-light));
+    color: hsl(var(--foreground));
   }
   
   .btn-secondary {
@@ -166,7 +167,8 @@
   }
   
   .btn-secondary:hover {
-    background-color: hsl(var(--secondary) / 0.9);
+    background-color: hsl(var(--secondary-light));
+    color: hsl(var(--foreground));
   }
   
   .btn-ghost {
@@ -179,6 +181,20 @@
   .btn-ghost:hover {
     background-color: hsl(var(--accent));
     color: hsl(var(--accent-foreground));
+  }
+  
+  /* Use Template button - transparent with accent border/text, fills with accent on hover, text stays same */
+  .btn-use-template {
+    background-color: transparent !important;
+    border: 1px solid hsl(var(--accent)) !important;
+    color: hsl(var(--accent)) !important;
+    transition: var(--transition-smooth);
+  }
+  
+  .btn-use-template:hover {
+    background-color: hsl(var(--accent)) !important;
+    color: hsl(var(--accent-foreground)) !important;
+    border-color: hsl(var(--accent)) !important;
   }
 }
 

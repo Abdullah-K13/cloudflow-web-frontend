@@ -14,7 +14,7 @@ const Header = () => {
     { name: "Templates", href: "/templates" },
     { name: "Documentation", href: "/docs" },
     // { name: "Settings", href: "/settings" },
-    { name: "Help", href: "/Help" },
+    { name: "Help", href: "/help" },
   ];
 
   const isActive = (path: string) => pathname === path;
