@@ -9,32 +9,136 @@ import { apiClient } from "./apiClient";
  */
 export async function login(email: string, password: string): Promise<string> {
   try {
-    const res = await apiClient.post("/auth/login", { email, password });
-
-    const data = res.data;
-    if (!data?.access_token) {
-      throw new Error("Invalid response from server (no access_token)");
+    // Use Next.js API route proxy when in browser to avoid CORS issues
+    // The API route will forward the request to the backend
+    const useProxy = typeof window !== "undefined";
+    
+    let res;
+    if (useProxy) {
+      // Use Next.js API route as proxy (bypasses CORS)
+      res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw {
+          response: {
+            status: res.status,
+            data: errorData,
+          },
+        };
+      }
+      
+      res = { data: await res.json(), status: res.status };
+    } else {
+      // Server-side: use direct API call
+      res = await apiClient.post("/auth/login", { email, password });
     }
 
-    console.log("Login successful:", res);
+    // Check if response exists and has data
+    if (!res || !res.data) {
+      throw new Error("Invalid response from server: No data received");
+    }
+
+    const data = res.data;
+    
+    // Check if access_token exists in response
+    if (!data?.access_token) {
+      console.error("Login response missing access_token:", data);
+      throw new Error("Invalid response from server: Missing access_token in response");
+    }
+
+    // Validate token is a non-empty string
+    if (typeof data.access_token !== "string" || data.access_token.trim().length === 0) {
+      throw new Error("Invalid response from server: access_token is empty or invalid");
+    }
+
+    console.log("Login successful, token received");
 
     // Set cookie in browser (matching React version exactly)
     if (typeof window !== "undefined") {
-      document.cookie = `access_token=${data.access_token}; path=/; samesite=lax`;
-      // Also store in localStorage (matching React version's Storage.set("token", ...))
-      localStorage.setItem("access_token", data.access_token);
+      try {
+        document.cookie = `access_token=${data.access_token}; path=/; samesite=lax`;
+        // Also store in localStorage (matching React version's Storage.set("token", ...))
+        localStorage.setItem("access_token", data.access_token);
+        
+        // Verify token was stored
+        const storedToken = localStorage.getItem("access_token");
+        if (!storedToken || storedToken !== data.access_token) {
+          console.warn("Warning: Token may not have been stored correctly");
+        }
+      } catch (storageError) {
+        console.error("Error storing token:", storageError);
+        throw new Error("Failed to store authentication token. Please check your browser settings.");
+      }
     }
 
     return data.access_token;
   } catch (error: any) {
-    if (error.response) {
-      const msg =
-        error.response.data?.detail ||
-        error.response.data?.message ||
-        `Login failed (${error.response.status})`;
-      throw new Error(msg);
+    // Get the attempted URL for better error messages
+    const attemptedUrl = error.config 
+      ? `${error.config.baseURL || ""}${error.config.url || ""}`
+      : "unknown URL";
+
+    // Handle network errors (no response received)
+    if (!error.response) {
+      // Check for CORS errors
+      if (error.message?.includes("CORS") || error.code === "ERR_NETWORK") {
+        const errorMsg = `Network error: Unable to connect to the server at ${attemptedUrl}. ` +
+          `Please check:\n` +
+          `1. Is the backend server running on ${error.config?.baseURL || "http://127.0.0.1:8000/"}?\n` +
+          `2. Is CORS configured correctly on the backend?\n` +
+          `3. Check the browser console for more details.`;
+        throw new Error(errorMsg);
+      }
+      // Check for timeout errors
+      if (error.code === "ECONNABORTED" || error.message?.includes("timeout")) {
+        throw new Error(`Request timeout: The server at ${attemptedUrl} took too long to respond. Please try again.`);
+      }
+      // Generic network error
+      const errorMsg = error.message 
+        ? `Network error: ${error.message} (Attempted: ${attemptedUrl})`
+        : `Network error: Unable to connect to the server at ${attemptedUrl}. Please check your connection and ensure the backend is running.`;
+      throw new Error(errorMsg);
     }
-    throw new Error(error.message || "Login failed");
+
+    // Handle API errors (response received but with error status)
+    if (error.response) {
+      const status = error.response.status;
+      const detail = error.response.data?.detail;
+      const message = error.response.data?.message;
+
+      // Handle specific status codes
+      if (status === 401) {
+        throw new Error("Invalid email or password. Please try again.");
+      } else if (status === 422) {
+        // Validation errors
+        if (Array.isArray(detail)) {
+          const validationErrors = detail
+            .map((d: any) => {
+              const loc = Array.isArray(d.loc) ? d.loc.join(".") : "";
+              return loc ? `${loc}: ${d.msg}` : d.msg;
+            })
+            .join(" | ");
+          throw new Error(`Validation error: ${validationErrors}`);
+        }
+        throw new Error(message || detail || "Invalid input. Please check your email and password.");
+      } else if (status >= 500) {
+        throw new Error("Server error: Please try again later or contact support.");
+      }
+
+      // Generic API error
+      const errorMsg = message || detail || `Login failed (${status})`;
+      throw new Error(errorMsg);
+    }
+
+    // Fallback for any other error
+    throw new Error(error.message || "Login failed. Please try again.");
   }
 }
 

@@ -7,7 +7,9 @@ import {
   Key, Copy, Eye, EyeOff, Trash2, Plus,
   CreditCard,
   Shield, Cloud, TestTube, LockKeyhole,
+  Loader2,
 } from "lucide-react";
+import { apiClient } from "@/lib/services/apiClient";
 
 /** Minimal helpers */
 const mask = (s: string) => "•".repeat(Math.max(16, s.length));
@@ -24,7 +26,7 @@ export default function SettingsClientBasic() {
   };
 
   /** tabs */
-  type Tab = "profile" | "organization" | "api-keys" | "billing" | "credentials";
+  type Tab = "profile" |  "api-keys" | "billing" | "credentials";
   const [tab, setTab] = useState<Tab>("profile");
 
   /** profile */
@@ -89,6 +91,86 @@ export default function SettingsClientBasic() {
   const testConnection = () => {
     // stubbed: wire to your API later
     flash(`Verified ${provider.toUpperCase()} credentials.`);
+  };
+
+  /** Save cloud credentials */
+  const [savingCredentials, setSavingCredentials] = useState(false);
+  const saveCloudCredentials = async () => {
+    try {
+      setSavingCredentials(true);
+      
+      // Build the request body according to the API format
+      // Format: { aws: {...} | null, gcp: {...} | null, azure: {...} | null }
+      const body: {
+        aws: { access_key_id: string; secret_access_key: string; region: string } | null;
+        gcp: any | null;
+        azure: { client_id: string; client_secret: string; tenant_id: string } | null;
+      } = {
+        aws: null,
+        gcp: null,
+        azure: null,
+      };
+
+      // Only include credentials for the current provider if they have values
+      if (provider === "aws") {
+        if (!awsAccessKey || !awsSecretKey || !awsRegion) {
+          flash("Please fill in all AWS credential fields", "err");
+          setSavingCredentials(false);
+          return;
+        }
+        body.aws = {
+          access_key_id: awsAccessKey.trim(),
+          secret_access_key: awsSecretKey.trim(),
+          region: awsRegion.trim(),
+        };
+      } else if (provider === "gcp") {
+        if (!gcpProjectId || !gcpJson) {
+          flash("Please fill in both Project ID and Service Account JSON", "err");
+          setSavingCredentials(false);
+          return;
+        }
+        try {
+          // Parse and validate JSON
+          const parsed = JSON.parse(gcpJson.trim());
+          // Store as dict with project_id and the parsed service account JSON
+          body.gcp = {
+            project_id: gcpProjectId.trim(),
+            service_account_json: parsed,
+          };
+        } catch (e) {
+          flash("Invalid JSON format for GCP service account. Please check your JSON syntax.", "err");
+          setSavingCredentials(false);
+          return;
+        }
+      } else if (provider === "azure") {
+        if (!azureClientId || !azureSecret || !azureTenant) {
+          flash("Please fill in all Azure credential fields", "err");
+          setSavingCredentials(false);
+          return;
+        }
+        body.azure = {
+          client_id: azureClientId.trim(),
+          client_secret: azureSecret.trim(),
+          tenant_id: azureTenant.trim(),
+        };
+      }
+
+      // Make API call
+      await apiClient.post("/auth/cloud-credentials", body);
+      
+      flash("Cloud credentials saved successfully", "ok");
+      
+    } catch (error: any) {
+      console.error("Failed to save cloud credentials:", error);
+      const errorMsg =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        error.message ||
+        "Failed to save cloud credentials";
+      flash(errorMsg, "err");
+    } finally {
+      setSavingCredentials(false);
+    }
   };
 
   /** UI bits */
@@ -161,7 +243,7 @@ export default function SettingsClientBasic() {
       <div className="rounded-xl border border-gray-200 bg-white/70 p-2 shadow-sm">
         <div className="flex flex-wrap gap-2">
           <TabBtn v="profile"><Users className="h-4 w-4" /> Profile</TabBtn>
-          <TabBtn v="organization"><Shield className="h-4 w-4" /> Organization</TabBtn>
+          {/* <TabBtn v="organization"><Shield className="h-4 w-4" /> Organization</TabBtn> */}
           <TabBtn v="api-keys"><Key className="h-4 w-4" /> API Keys</TabBtn>
           <TabBtn v="billing"><CreditCard className="h-4 w-4" /> Billing</TabBtn>
           <TabBtn v="credentials"><Cloud className="h-4 w-4" /> Cloud Credentials</TabBtn>
@@ -195,13 +277,29 @@ export default function SettingsClientBasic() {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="First name">
-                  <input className="input" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+                  <input
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="Enter first name"
+                  />
                 </Field>
                 <Field label="Last name">
-                  <input className="input" value={lastName} onChange={(e) => setLastName(e.target.value)} />
+                  <input
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="Enter last name"
+                  />
                 </Field>
                 <Field label="Email" full>
-                  <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                  <input
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Enter email address"
+                  />
                 </Field>
               </div>
 
@@ -209,21 +307,34 @@ export default function SettingsClientBasic() {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Current password">
-                  <input className="input" type="password" />
+                  <input
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                    type="password"
+                    placeholder="Enter current password"
+                  />
                 </Field>
                 <Field label="New password">
-                  <input className="input" type="password" />
+                  <input
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                    type="password"
+                    placeholder="Enter new password"
+                  />
                 </Field>
               </div>
 
-              <div className="flex justify-end">
-                <button className="btn-primary" onClick={() => save("profile")}>Save changes</button>
+              <div className="flex justify-end pt-2">
+                <button
+                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all hover:border-gray-400 hover:bg-gray-50 hover:shadow focus:outline-none focus:ring-2 focus:ring-orange-100 focus:ring-offset-2"
+                  onClick={() => save("profile")}
+                >
+                  Save changes
+                </button>
               </div>
             </div>
           </Card>
         )}
 
-        {/* ORGANIZATION */}
+        {/* ORGANIZATION
         {tab === "organization" && (
           <Card>
             <CardHead title="Organization" desc="Team, roles, and permissions" />
@@ -299,7 +410,7 @@ export default function SettingsClientBasic() {
               </div>
             </div>
           </Card>
-        )}
+        )} */}
 
         {/* API KEYS */}
         {tab === "api-keys" && (
@@ -448,11 +559,27 @@ export default function SettingsClientBasic() {
                   <ProviderChip active={provider === "azure"} onClick={() => setProvider("azure")} label="Azure" />
                   <ProviderChip active={provider === "gcp"} onClick={() => setProvider("gcp")} label="GCP" />
                   <div className="ml-auto flex items-center gap-2">
-                    <button className="btn-outline" onClick={testConnection}>
+                    <button
+                      className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all hover:border-gray-400 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-orange-100"
+                      onClick={testConnection}
+                    >
                       <TestTube className="h-4 w-4" />
                       Test connection
                     </button>
-                    <button className="btn-teal" onClick={() => save("cloud credentials")}>Save</button>
+                    <button
+                      className="inline-flex items-center gap-2 rounded-lg border border-orange-300 bg-orange-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:border-orange-400 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-100 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={saveCloudCredentials}
+                      disabled={savingCredentials}
+                    >
+                      {savingCredentials ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        "Save credentials"
+                      )}
+                    </button>
                   </div>
                 </div>
 
@@ -460,13 +587,29 @@ export default function SettingsClientBasic() {
                 {provider === "aws" && (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <Field label="Access Key ID">
-                      <input className="input" value={awsAccessKey} onChange={(e) => setAwsAccessKey(e.target.value)} placeholder="AKIA..." />
+                      <input
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                        value={awsAccessKey}
+                        onChange={(e) => setAwsAccessKey(e.target.value)}
+                        placeholder="AKIA..."
+                      />
                     </Field>
                     <Field label="Secret Access Key">
-                      <input className="input" type="password" value={awsSecretKey} onChange={(e) => setAwsSecretKey(e.target.value)} />
+                      <input
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                        type="password"
+                        value={awsSecretKey}
+                        onChange={(e) => setAwsSecretKey(e.target.value)}
+                        placeholder="Enter secret access key"
+                      />
                     </Field>
                     <Field label="Default Region" full>
-                      <input className="input" value={awsRegion} onChange={(e) => setAwsRegion(e.target.value)} placeholder="us-east-1" />
+                      <input
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                        value={awsRegion}
+                        onChange={(e) => setAwsRegion(e.target.value)}
+                        placeholder="us-east-1"
+                      />
                     </Field>
                     <p className="col-span-full rounded-lg border border-orange-200 bg-orange-50 p-3 text-xs text-orange-800">
                       <LockKeyhole className="mr-1 inline h-4 w-4" />
@@ -478,13 +621,29 @@ export default function SettingsClientBasic() {
                 {provider === "azure" && (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <Field label="Client ID">
-                      <input className="input" value={azureClientId} onChange={(e) => setAzureClientId(e.target.value)} />
+                      <input
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                        value={azureClientId}
+                        onChange={(e) => setAzureClientId(e.target.value)}
+                        placeholder="Enter client ID"
+                      />
                     </Field>
                     <Field label="Client Secret">
-                      <input className="input" type="password" value={azureSecret} onChange={(e) => setAzureSecret(e.target.value)} />
+                      <input
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                        type="password"
+                        value={azureSecret}
+                        onChange={(e) => setAzureSecret(e.target.value)}
+                        placeholder="Enter client secret"
+                      />
                     </Field>
                     <Field label="Tenant ID" full>
-                      <input className="input" value={azureTenant} onChange={(e) => setAzureTenant(e.target.value)} />
+                      <input
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                        value={azureTenant}
+                        onChange={(e) => setAzureTenant(e.target.value)}
+                        placeholder="Enter tenant ID"
+                      />
                     </Field>
                   </div>
                 )}
@@ -492,10 +651,20 @@ export default function SettingsClientBasic() {
                 {provider === "gcp" && (
                   <div className="grid gap-4">
                     <Field label="Project ID">
-                      <input className="input" value={gcpProjectId} onChange={(e) => setGcpProjectId(e.target.value)} />
+                      <input
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                        value={gcpProjectId}
+                        onChange={(e) => setGcpProjectId(e.target.value)}
+                        placeholder="Enter project ID"
+                      />
                     </Field>
                     <Field label="Service Account JSON">
-                      <textarea className="input min-h-[96px]" value={gcpJson} onChange={(e) => setGcpJson(e.target.value)} placeholder='{"type":"service_account",...}' />
+                      <textarea
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors min-h-[120px] font-mono text-xs"
+                        value={gcpJson}
+                        onChange={(e) => setGcpJson(e.target.value)}
+                        placeholder='{"type":"service_account","project_id":"...","private_key_id":"...","private_key":"...","client_email":"...","client_id":"...","auth_uri":"...","token_uri":"...","auth_provider_x509_cert_url":"...","client_x509_cert_url":"..."}'
+                      />
                     </Field>
                   </div>
                 )}
