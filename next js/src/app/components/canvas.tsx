@@ -543,22 +543,53 @@ const CanvasInner = (
   };
 
   /* ----------------- API helpers ----------------- */
-  const API_BASE = process.env.NEXT_PUBLIC_API || "http://localhost:8000/aws";
+  // Use the same base URL pattern as apiClient
+  const API_BASE = 
+    typeof window === "undefined"
+      ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+      : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+  const AWS_API_BASE = `${API_BASE}/aws`;
+
+  // Helper to get access token from localStorage
+  const getAccessToken = (): string | null => {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem("access_token");
+  };
+
+  // Helper to create headers with auth if token exists
+  const getHeaders = (includeAuth: boolean = false): HeadersInit => {
+    const headers: HeadersInit = { "Content-Type": "application/json" };
+    if (includeAuth) {
+      const token = getAccessToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+    }
+    return headers;
+  };
 
   const [deploying, setDeploying] = useState(false);
   const [compiling, setCompiling] = useState(false);
+  const [bootstrapping, setBootstrapping] = useState(false);
+  const [destroying, setDestroying] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(false);
 
-  /* ----------------- NEW: deploy via /deploy (single POST, no auth) ----------------- */
+  /* ----------------- Deploy via /deploy (requires auth) ----------------- */
   const handleDeploy = async () => {
     try {
       setDeploying(true);
 
+      const token = getAccessToken();
+      if (!token) {
+        throw new Error("Authentication required. Please log in first.");
+      }
+
       const plan = buildPlan();
       const payload = buildDeploymentPayload(plan);
 
-      const res = await fetch(`${API_BASE}/deploy`, {
+      const res = await fetch(`${AWS_API_BASE}/deploy`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getHeaders(true),
         body: JSON.stringify(payload),
       });
 
@@ -571,12 +602,33 @@ const CanvasInner = (
       }
 
       if (!res.ok) {
-        const msg = data?.detail || data?.error || text || `Deploy failed (${res.status})`;
+        // Handle bootstrap error specifically
+        const detail = data?.detail;
+        if (detail?.message === "CDK environment not bootstrapped" || 
+            (typeof detail === "string" && detail.includes("not been bootstrapped")) ||
+            (detail?.message && detail.message.includes("not been bootstrapped"))) {
+          const hint = detail?.hint || "Please bootstrap the CDK environment first.";
+          throw new Error(`CDK environment not bootstrapped. ${hint}`);
+        }
+        
+        // Handle other errors - backend returns {detail: {message: "...", output: "..."}}
+        let msg: string;
+        if (typeof detail === "string") {
+          msg = detail;
+        } else if (detail?.message) {
+          msg = detail.message;
+          if (detail?.output) {
+            msg += `\n${detail.output}`;
+          }
+        } else {
+          msg = data?.error || text || `Deploy failed (${res.status})`;
+        }
         throw new Error(msg);
       }
 
-      console.log("Deploy ok:", data || text);
-      alert("Deployed successfully! 🎉");
+      // Success response: {message: "deploy ok", output: "..."}
+      console.log("Deploy ok:", data);
+      alert(`Deployed successfully! 🎉\n${data?.output ? `\n${data.output}` : ""}`);
     } catch (e: any) {
       console.error("Deployment error:", e?.message || e);
       alert(e?.message || "Something went wrong while deploying.");
@@ -585,6 +637,7 @@ const CanvasInner = (
     }
   };
 
+  /* ----------------- Compile via /compile (no auth required) ----------------- */
   const handleCompile = async () => {
     try {
       setCompiling(true);
@@ -592,9 +645,9 @@ const CanvasInner = (
       const plan = buildPlan();
       const payload = buildDeploymentPayload(plan);
 
-      const res = await fetch(`${API_BASE}/compile`, {
+      const res = await fetch(`${AWS_API_BASE}/compile`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getHeaders(false),
         body: JSON.stringify(payload),
       });
 
@@ -607,17 +660,203 @@ const CanvasInner = (
       }
 
       if (!res.ok) {
-        const msg = data?.detail || data?.error || text || `Compile failed (${res.status})`;
+        // Backend returns {detail: {message: "synth failed", output: "..."}}
+        const detail = data?.detail;
+        let msg: string;
+        if (typeof detail === "string") {
+          msg = detail;
+        } else if (detail?.message) {
+          msg = detail.message;
+          if (detail?.output) {
+            msg += `\n${detail.output}`;
+          }
+        } else {
+          msg = data?.error || text || `Compile failed (${res.status})`;
+        }
         throw new Error(msg);
       }
 
-      console.log("Compile ok:", data || text);
-      alert("Compiled successfully (CDK synth).");
+      // Success response: {message: "synth ok", ir_path: "...", synth_output: "..."}
+      console.log("Compile ok:", data);
+      alert(`Compiled successfully (CDK synth).${data?.synth_output ? `\n\n${data.synth_output}` : ""}`);
     } catch (e: any) {
       console.error("Compile error:", e?.message || e);
       alert(e?.message || "Something went wrong while compiling.");
     } finally {
       setCompiling(false);
+    }
+  };
+
+  /* ----------------- Bootstrap via /bootstrap (requires auth) ----------------- */
+  const handleBootstrap = async () => {
+    try {
+      setBootstrapping(true);
+
+      const token = getAccessToken();
+      if (!token) {
+        throw new Error("Authentication required. Please log in first.");
+      }
+
+      const plan = buildPlan();
+      const payload = buildDeploymentPayload(plan);
+
+      // Ensure region is set for bootstrap
+      if (!payload.region) {
+        throw new Error("Region is required for bootstrap. Please configure a region in your pipeline.");
+      }
+
+      const res = await fetch(`${AWS_API_BASE}/bootstrap`, {
+        method: "POST",
+        headers: getHeaders(true),
+        body: JSON.stringify(payload),
+      });
+
+      const text = await res.text().catch(() => "");
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        /* keep raw text */
+      }
+
+      if (!res.ok) {
+        // Backend returns {detail: {message: "bootstrap failed", output: "..."}} or {detail: "string"}
+        const detail = data?.detail;
+        let msg: string;
+        if (typeof detail === "string") {
+          msg = detail;
+        } else if (detail?.message) {
+          msg = detail.message;
+          if (detail?.output) {
+            msg += `\n${detail.output}`;
+          }
+        } else {
+          msg = data?.error || text || `Bootstrap failed (${res.status})`;
+        }
+        throw new Error(msg);
+      }
+
+      // Success response: {message: "bootstrap ok", output: "..."}
+      console.log("Bootstrap ok:", data);
+      alert(`CDK environment bootstrapped successfully! 🎉${data?.output ? `\n\n${data.output}` : ""}`);
+    } catch (e: any) {
+      console.error("Bootstrap error:", e?.message || e);
+      alert(e?.message || "Something went wrong while bootstrapping.");
+    } finally {
+      setBootstrapping(false);
+    }
+  };
+
+  /* ----------------- Destroy via /aws/destroy (no auth required, but should have it) ----------------- */
+  const handleDestroy = async () => {
+    try {
+      setDestroying(true);
+
+      const res = await fetch(`${AWS_API_BASE}/destroy`, {
+        method: "POST",
+        headers: getHeaders(false),
+      });
+
+      const text = await res.text().catch(() => "");
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        /* keep raw text */
+      }
+
+      if (!res.ok) {
+        // Backend returns {detail: {message: "destroy failed", output: "..."}} or {detail: "string"}
+        const detail = data?.detail;
+        let msg: string;
+        if (typeof detail === "string") {
+          msg = detail;
+        } else if (detail?.message) {
+          msg = detail.message;
+          if (detail?.output) {
+            msg += `\n${detail.output}`;
+          }
+        } else {
+          msg = data?.error || text || `Destroy failed (${res.status})`;
+        }
+        throw new Error(msg);
+      }
+
+      // Success response: {message: "destroy ok", output: "..."}
+      console.log("Destroy ok:", data);
+      alert(`Resources destroyed successfully.${data?.output ? `\n\n${data.output}` : ""}`);
+    } catch (e: any) {
+      console.error("Destroy error:", e?.message || e);
+      alert(e?.message || "Something went wrong while destroying resources.");
+    } finally {
+      setDestroying(false);
+    }
+  };
+
+  /* ----------------- Status via /aws/status (no auth required) ----------------- */
+  const handleStatus = async () => {
+    try {
+      setCheckingStatus(true);
+
+      const res = await fetch(`${AWS_API_BASE}/status`, {
+        method: "GET",
+        headers: getHeaders(false),
+      });
+
+      const text = await res.text().catch(() => "");
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        /* keep raw text */
+      }
+
+      if (!res.ok) {
+        const detail = data?.detail;
+        let msg: string;
+        if (typeof detail === "string") {
+          msg = detail;
+        } else if (detail?.message) {
+          msg = detail.message;
+        } else {
+          msg = data?.error || text || `Status check failed (${res.status})`;
+        }
+        throw new Error(msg);
+      }
+
+      // Success response: {stacks: [...]}
+      console.log("Status:", data);
+      const stacks = data?.stacks || [];
+      if (Array.isArray(stacks) && stacks.length > 0) {
+        const stackList = stacks.join("\n");
+        alert(`Found ${stacks.length} stack(s):\n\n${stackList}`);
+      } else {
+        alert("No stacks found.");
+      }
+    } catch (e: any) {
+      console.error("Status error:", e?.message || e);
+      alert(e?.message || "Something went wrong while checking status.");
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
+
+  /* ----------------- Health check via /aws/health ----------------- */
+  const checkHealth = async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`${AWS_API_BASE}/health`, {
+        method: "GET",
+        headers: getHeaders(false),
+      });
+
+      if (!res.ok) {
+        return false;
+      }
+
+      const data = await res.json().catch(() => ({}));
+      return data?.status === "ok";
+    } catch {
+      return false;
     }
   };
 
@@ -688,108 +927,121 @@ const CanvasInner = (
         aria-label="Cloud services palette"
       >
          {/* Actions */}
-        <div className="p-3 border-t border-gray-200 grid grid-cols-2 gap-2">
-    
-          <button
-            onClick={() => {
-              const plan = buildPlan();
-              const prompt = buildPrompt(plan);
-              console.log("=== Prompt ===\n", prompt);
-              // still keeping your existing printer to match behavior
-              // (and a visual button since topbar is gone)
-              // You can remove either of the two calls if you want one log.
-              const payload = (function () {
-                // inline to avoid accidental refactor of your functions
-                const _plan = plan;
-                return (function (_p: Plan) {
-                  const project = "canvas-project";
-                  const env = "dev";
-                  const region = _p.awsRegion || "ap-southeast-2";
-                  const outgoingById = new Map<string, number>();
-                  _p.edges.forEach((e) => outgoingById.set(e.from, (outgoingById.get(e.from) || 0) + 1));
-                  const nodes = _p.nodes.map((pn) => {
-                    const kind = KIND_MAP[pn.type] || "aws.other";
-                    const raw = pn.props || {};
-                    const props = normalizeToDesiredProps(kind, raw);
-                    if (kind === "aws.s3") {
-                      const hasOutgoing = (outgoingById.get(pn.id) || 0) > 0;
-                      if (props.eventBridge === undefined) props.eventBridge = hasOutgoing ? true : false;
-                    }
-                    return { id: pn.id, kind, name: pn.name, props };
-                  });
-                  const indexById = Object.fromEntries(_p.nodes.map((n) => [n.id, n]));
-                  const edges = _p.edges.map((pe) => {
-                    const src = indexById[pe.from] as PlanNode | undefined;
-                    const tgt = indexById[pe.to] as PlanNode | undefined;
-                    const intent = computeIntent(src?.type as ExtendedPlanNodeType, tgt?.type as ExtendedPlanNodeType);
-                    const edge: any = { from: pe.from, to: pe.to, intent };
-                    if (src?.type === "apigateway" && tgt?.type === "lambda") {
-                      edge.path = (pe.props as any)?.path || "/";
-                      edge.method = (pe.props as any)?.method || "ANY";
-                    }
-                    if ((src?.type === "sqs" || src?.type === "dynamodb" || src?.type === "kinesis") && tgt?.type === "lambda") {
-                      const batchSize = Number((pe.props as any)?.batchSize ?? NaN);
-                      if (!Number.isNaN(batchSize)) edge.batchSize = batchSize;
-                    }
-                    return edge;
-                  });
-                  return { project, env, region, nodes, edges };
-                })(_plan);
-              })();
-              console.log("=== /deploy payload ===\n", JSON.stringify(payload, null, 2));
-            }}
-            className="inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold border border-teal-200 text-teal-700 hover:bg-teal-50"
-            title="Print Prompt"
-          >
-            Print Prompt
-          </button>
+        <div className="p-3 border-t border-gray-200 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => {
+                const plan = buildPlan();
+                const prompt = buildPrompt(plan);
+                console.log("=== Prompt ===\n", prompt);
+                const payload = buildDeploymentPayload(plan);
+                console.log("=== /deploy payload ===\n", JSON.stringify(payload, null, 2));
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold border border-teal-200 text-teal-700 hover:bg-teal-50"
+              title="Print Prompt"
+            >
+              Print Prompt
+            </button>
 
-          <button
-            type="button"
-            onClick={handleCompile}
-            disabled={compiling}
-            className={[
-              "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-              "bg-amber-600 text-white hover:bg-amber-700",
-              "focus:outline-none focus:ring-4 focus:ring-amber-200/70",
-              "disabled:opacity-60 disabled:cursor-not-allowed",
-              "shadow-sm transition-all",
-            ].join(" ")}
-            title="Compile (CDK synth)"
-          >
-            {compiling ? "Compiling…" : "Compile"}
-          </button>
+            <button
+              type="button"
+              onClick={handleCompile}
+              disabled={compiling}
+              className={[
+                "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                "bg-amber-600 text-white hover:bg-amber-700",
+                "focus:outline-none focus:ring-4 focus:ring-amber-200/70",
+                "disabled:opacity-60 disabled:cursor-not-allowed",
+                "shadow-sm transition-all",
+              ].join(" ")}
+              title="Compile (CDK synth)"
+            >
+              {compiling ? "Compiling…" : "Compile"}
+            </button>
+          </div>
 
-          <button
-            type="button"
-            onClick={handleDeploy}
-            disabled={deploying}
-            className={[
-              "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-              "bg-teal-600 text-white hover:bg-teal-700",
-              "focus:outline-none focus:ring-4 focus:ring-teal-200/70",
-              "disabled:opacity-60 disabled:cursor-not-allowed",
-              "shadow-sm transition-all",
-            ].join(" ")}
-            title="Deploy"
-          >
-            {deploying ? (
-              <>
-                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.25" />
-                  <path d="M21 12a9 9 0 0 1-9 9" stroke="currentColor" strokeWidth="3" />
-                </svg>
-                Deploying…
-              </>
-            ) : (
-              <>
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                  <path d="M12 2c3.5 0 6 2.5 6 6 0 3.2-2.2 6.4-5 8l-1 6-3-4-4-3 6-1c1.6-2.8 4.8-5 8-5 0-3.5-2.5-6-6-6z" />
-                </svg>
-                Deploy
-              </>
-            )}
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={handleBootstrap}
+              disabled={bootstrapping}
+              className={[
+                "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                "bg-purple-600 text-white hover:bg-purple-700",
+                "focus:outline-none focus:ring-4 focus:ring-purple-200/70",
+                "disabled:opacity-60 disabled:cursor-not-allowed",
+                "shadow-sm transition-all",
+              ].join(" ")}
+              title="Bootstrap CDK environment"
+            >
+              {bootstrapping ? "Bootstrapping…" : "Bootstrap"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDeploy}
+              disabled={deploying}
+              className={[
+                "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                "bg-teal-600 text-white hover:bg-teal-700",
+                "focus:outline-none focus:ring-4 focus:ring-teal-200/70",
+                "disabled:opacity-60 disabled:cursor-not-allowed",
+                "shadow-sm transition-all",
+              ].join(" ")}
+              title="Deploy"
+            >
+              {deploying ? (
+                <>
+                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+                    <path d="M21 12a9 9 0 0 1-9 9" stroke="currentColor" strokeWidth="3" />
+                  </svg>
+                  Deploying…
+                </>
+              ) : (
+                <>
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                    <path d="M12 2c3.5 0 6 2.5 6 6 0 3.2-2.2 6.4-5 8l-1 6-3-4-4-3 6-1c1.6-2.8 4.8-5 8-5 0-3.5-2.5-6-6-6z" />
+                  </svg>
+                  Deploy
+                </>
+              )}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={handleStatus}
+              disabled={checkingStatus}
+              className={[
+                "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                "bg-blue-600 text-white hover:bg-blue-700",
+                "focus:outline-none focus:ring-4 focus:ring-blue-200/70",
+                "disabled:opacity-60 disabled:cursor-not-allowed",
+                "shadow-sm transition-all",
+              ].join(" ")}
+              title="Check CDK stack status"
+            >
+              {checkingStatus ? "Checking…" : "Status"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDestroy}
+              disabled={destroying}
+              className={[
+                "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                "bg-red-600 text-white hover:bg-red-700",
+                "focus:outline-none focus:ring-4 focus:ring-red-200/70",
+                "disabled:opacity-60 disabled:cursor-not-allowed",
+                "shadow-sm transition-all",
+              ].join(" ")}
+              title="Destroy all stacks"
+            >
+              {destroying ? "Destroying…" : "Destroy"}
+            </button>
+          </div>
         </div>
         {/* Provider switcher */}
         <div className="p-3 border-b border-gray-200">

@@ -37,16 +37,19 @@ const Login = () => {
     try {
       const token = await login(formData.email, formData.password);
 
-      // Verify token was stored
-      if (typeof window !== "undefined") {
+      // Explicitly store access_token in localStorage if not already stored
+      if (typeof window !== "undefined" && token) {
+        localStorage.setItem("access_token", token);
+        
+        // Verify token was stored successfully
         const storedToken = localStorage.getItem("access_token");
-        if (!storedToken && !token) {
+        if (!storedToken || storedToken !== token) {
           throw new Error("Failed to store authentication token. Please try again.");
         }
       }
 
-      // Redirect to dashboard (root route)
-      router.push("/");
+      // Redirect to dashboard
+      router.push("/dash");
     } catch (err: any) {
       // Extract error message
       let errorMessage = "Login failed";
