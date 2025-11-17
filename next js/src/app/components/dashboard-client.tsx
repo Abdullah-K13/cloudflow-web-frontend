@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Search, Plus } from "lucide-react";
-import axios from "axios";
+import { apiClient } from "@/lib/services/apiClient";
 
 // ---------- Types ----------
 interface RecentArchitecture {
@@ -25,31 +25,14 @@ type PipelineApiResponse = {
   updatedAt?: string;
 };
 
-type Props = { userId: string | null; apiKey: string | null; name: string | null };
+type Props = {
+  userId: string | null;
+  apiKey: string | null;
+  name: string | null;
+  userRole?: string | null;
+};
 
-// ---------- API config & auth helpers ----------
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
-
-function getCookie(name: string): string | null {
-  if (typeof document === "undefined") return null;
-  const cookies = document.cookie.split(";").map((c) => c.trim());
-  for (const cookie of cookies) {
-    if (cookie.startsWith(name + "=")) {
-      return cookie.substring(name.length + 1);
-    }
-  }
-  return null;
-}
-
-function getAuthHeaders() {
-  if (typeof window === "undefined") return {};
-  const cookieToken = getCookie("access_token");
-  const localToken = localStorage.getItem("access_token");
-  const token = cookieToken || localToken;
-
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+// Note: Using apiClient which automatically handles authentication via Authorization header
 
 // small helper to show "2h ago", "3 days ago"
 function formatRelativeTime(iso?: string | null): string {
@@ -70,32 +53,62 @@ function formatRelativeTime(iso?: string | null): string {
   return d.toLocaleDateString();
 }
 
-export default function DashboardClient({ userId, apiKey, name }: Props) {
+export default function DashboardClient({
+  userId,
+  apiKey,
+  name,
+  userRole,
+}: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   const [isClient, setIsClient] = useState(false);
   const [recentArchitectures, setRecentArchitectures] = useState<RecentArchitecture[]>([]);
   const [loading, setLoading] = useState(true);
   const [sidebarError, setSidebarError] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(name);
+  const [userInfo, setUserInfo] = useState<{
+    id: string | null;
+    email: string | null;
+    role: string | null;
+  }>({ id: userId, email: name, role: userRole || null });
 
   useEffect(() => {
     setIsClient(true);
+    loadUserInfo();
     loadRecentPipelines();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const loadUserInfo = async () => {
+    try {
+      // Use apiClient which automatically includes the Authorization header
+      const res = await apiClient.get("/auth/me");
+
+      if (res.data) {
+        setUserInfo({
+          id: res.data.id || null,
+          email: res.data.email || null,
+          role: res.data.role || null,
+        });
+        setUserName(res.data.email || res.data.name || "User");
+      }
+    } catch (error: any) {
+      console.error("Failed to load user info:", error);
+      // If 401, token might be invalid - could redirect to login
+      if (error.response?.status === 401) {
+        console.warn("Unauthorized - token may be invalid");
+        // Optionally redirect to login
+        // window.location.href = "/login";
+      }
+    }
+  };
 
   const loadRecentPipelines = async () => {
     try {
       setLoading(true);
       setSidebarError(null);
 
-      const res = await axios.get<PipelineApiResponse[]>(
-        `${API_BASE}/pipelines`,
-        {
-          headers: {
-            ...getAuthHeaders(),
-          },
-        }
-      );
+      // Use apiClient which automatically includes the Authorization header
+      const res = await apiClient.get<PipelineApiResponse[]>("/pipelines");
 
       const pipelines = Array.isArray(res.data) ? res.data : [];
 
@@ -151,7 +164,7 @@ export default function DashboardClient({ userId, apiKey, name }: Props) {
         {/* Header */}
         <div className="mb-8">
           <h1 className="mb-2 text-2xl font-semibold tracking-tight">
-            Good Evening {name}
+            Good Evening {userName || "User"}
           </h1>
           <p className="mb-6 text-sm text-gray-500">
             Build, explore, and manage your pipelines with ease.
