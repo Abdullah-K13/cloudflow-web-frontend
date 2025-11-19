@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import DashboardLayoutClient from "@/src/app/components/DashboardLayoutClient";
+import DashboardLayoutClient from "@/components/DashboardLayoutClient";
 
 export const metadata: Metadata = {
   title: "Dashboard - AWS Architecture Builder",
