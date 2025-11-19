@@ -37,10 +37,35 @@ const Login = () => {
     try {
       const token = await login(formData.email, formData.password);
 
-      // Redirect to dashboard (root route)
-      router.push("/");
+      // Explicitly store access_token in localStorage if not already stored
+      if (typeof window !== "undefined" && token) {
+        localStorage.setItem("access_token", token);
+        
+        // Verify token was stored successfully
+        const storedToken = localStorage.getItem("access_token");
+        if (!storedToken || storedToken !== token) {
+          throw new Error("Failed to store authentication token. Please try again.");
+        }
+      }
+
+      // Redirect to dashboard
+      router.push("/dash");
     } catch (err: any) {
-      setErrorMsg(err.message || "Login failed");
+      // Extract error message
+      let errorMessage = "Login failed";
+      
+      if (err?.message) {
+        errorMessage = err.message;
+      } else if (typeof err === "string") {
+        errorMessage = err;
+      } else if (err?.response?.data) {
+        // Handle axios error response
+        const data = err.response.data;
+        errorMessage = data.detail || data.message || `Login failed (${err.response.status})`;
+      }
+
+      console.error("Login error:", err);
+      setErrorMsg(errorMessage);
     } finally {
       setLoading(false);
     }
