@@ -29,6 +29,7 @@ export interface CanvasProps {
   onServiceClick: (service: ServiceItem) => void;
   onDeleteService: (serviceId: string) => void;
   onSelectedNodesChange?: (nodes: { id: string; type: string }[]) => void;
-onCanvasNodesChange?: (nodes: { id: string; type: string }[]) => void;
-
+  onCanvasNodesChange?: (nodes: { id: string; type: string }[]) => void;
+  currentPipelineId?: string | null;
+  onPipelineCreated?: (pipelineId: string) => void;
 }

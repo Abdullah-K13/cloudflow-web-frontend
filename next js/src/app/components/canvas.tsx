@@ -343,7 +343,7 @@ const makeDefaultConfig = (label: string) => ({
 /* --------------------- component --------------------- */
 
 const CanvasInner = (
-  { items, updateItemPosition, onSelectedNodesChange, onCanvasNodesChange }: CanvasProps,
+  { items, updateItemPosition, onSelectedNodesChange, onCanvasNodesChange, currentPipelineId, onPipelineCreated }: CanvasProps,
   ref: React.Ref<{ getPlan: () => Plan; getPrompt: () => string; buildDeploymentPayload: (plan: Plan) => any; getProvider: () => Provider }>
 ) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -715,6 +715,114 @@ const CanvasInner = (
   });
   const router = useRouter();
 
+  /* ----------------- Auto-save pipeline if needed ----------------- */
+  const ensurePipelineExists = async (): Promise<string | null> => {
+    // If pipeline already exists, return its ID
+    if (currentPipelineId) {
+      return currentPipelineId;
+    }
+
+    // Otherwise, create a new pipeline
+    try {
+      const token = getAccessToken();
+      if (!token) {
+        console.log("No auth token, cannot auto-save pipeline");
+        return null;
+      }
+
+      const plan = buildPlan();
+      const payload = buildDeploymentPayload(plan);
+
+      const env = payload.env || "dev";
+      const region = payload.region || payload.location || "us-east-1";
+      const cloud = provider === "gcp" ? "gcp" : provider === "azure" ? "azure" : "aws";
+
+      const API_BASE = 
+        typeof window === "undefined"
+          ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+          : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+
+      const pipelineData = {
+        name: "Untitled Pipeline",
+        env: env as "dev" | "staging" | "prod",
+        cloud: cloud as "aws" | "gcp" | "azure",
+        region: region,
+        payload: payload,
+        status: "draft" as const,
+      };
+
+      const res = await fetch(`${API_BASE}/pipelines/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify(pipelineData),
+      });
+
+      if (res.ok) {
+        const savedPipeline = await res.json();
+        const pipelineId = typeof savedPipeline.id === 'string' ? savedPipeline.id : String(savedPipeline.id);
+        console.log("Pipeline auto-saved:", pipelineId);
+        
+        // Notify parent component about the auto-created pipeline
+        if (onPipelineCreated) {
+          onPipelineCreated(pipelineId);
+        }
+        
+        return pipelineId;
+      } else {
+        console.error("Failed to auto-save pipeline:", await res.text());
+        return null;
+      }
+    } catch (error) {
+      console.error("Error auto-saving pipeline:", error);
+      return null;
+    }
+  };
+
+  /* ----------------- Update Pipeline Status ----------------- */
+  const updatePipelineStatus = async (status: "draft" | "ready" | "deploying" | "deployed" | "failed") => {
+    // First, ensure pipeline exists
+    const pipelineId = currentPipelineId || await ensurePipelineExists();
+    
+    if (!pipelineId) {
+      console.log("No pipeline ID available, skipping status update");
+      return;
+    }
+
+    try {
+      const token = getAccessToken();
+      if (!token) {
+        console.log("No auth token, skipping status update");
+        return;
+      }
+
+      const API_BASE = 
+        typeof window === "undefined"
+          ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+          : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+
+      const res = await fetch(`${API_BASE}/pipelines/${pipelineId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status }),
+      });
+
+      if (res.ok) {
+        console.log(`Pipeline status updated to: ${status}`);
+      } else {
+        console.error("Failed to update pipeline status:", await res.text());
+      }
+    } catch (error) {
+      console.error("Error updating pipeline status:", error);
+      // Silently fail - status update is not critical
+    }
+  };
+
   /* ----------------- Deploy via /deploy (requires auth) ----------------- */
   const handleDeploy = async () => {
     try {
@@ -785,6 +893,10 @@ const CanvasInner = (
 
       // Success response: {message: "deploy ok", output: "..."}
       console.log("Deploy ok:", data);
+      
+      // Update pipeline status to "ready" on successful deployment
+      await updatePipelineStatus("ready");
+      
       setSuccessModal({
         isOpen: true,
         title: "Deployed Successfully! 🎉",
@@ -793,6 +905,10 @@ const CanvasInner = (
       });
     } catch (e: any) {
       console.error("Deployment error:", e?.message || e);
+      
+      // Update pipeline status to "failed" on deployment error
+      await updatePipelineStatus("failed");
+      
       alert(e?.message || "Something went wrong while deploying.");
     } finally {
       setDeploying(false);
@@ -843,6 +959,10 @@ const CanvasInner = (
 
       // Success response: {message: "synth ok", ir_path: "...", synth_output: "..."}
       console.log("Compile ok:", data);
+      
+      // Update pipeline status to "ready" on successful compile
+      await updatePipelineStatus("ready");
+      
       alert(`Compiled successfully (CDK synth).${data?.synth_output ? `\n\n${data.synth_output}` : ""}`);
     } catch (e: any) {
       console.error("Compile error:", e?.message || e);
@@ -1030,6 +1150,10 @@ const CanvasInner = (
       }
 
       console.log("Preview ok:", data);
+      
+      // Update pipeline status to "ready" on successful preview
+      await updatePipelineStatus("ready");
+      
       const previewDetails = data?.preview || data?.changeSummary 
         ? `${data?.preview ? `Preview:\n${data.preview}` : ""}${data?.changeSummary ? `${data?.preview ? "\n\n" : ""}Change Summary:\n${data.changeSummary}` : ""}`
         : undefined;
@@ -1114,11 +1238,19 @@ const CanvasInner = (
     }
   };
 
+  // Get all services from nodes
+  const getAllServices = useCallback((): ServiceItem[] => {
+    return nodes
+      .map((n) => (n.data as any)?.service as ServiceItem | undefined)
+      .filter((s): s is ServiceItem => s !== undefined);
+  }, [nodes]);
+
   useImperativeHandle(ref, () => ({
     getPlan: () => buildPlan(),
     getPrompt: () => buildPrompt(buildPlan()),
     buildDeploymentPayload: (plan: Plan) => buildDeploymentPayload(plan),
     getProvider: () => provider,
+    getAllServices: () => getAllServices(),
   }));
 
   const [search, setSearch] = useState("");

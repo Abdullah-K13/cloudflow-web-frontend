@@ -29,8 +29,9 @@ interface LeftPanelProps {
   onToggle?: () => void;
   canvasNodes?: { id: string; type: string }[];
   onPipelineSelect?: (pipeline: Pipeline) => void;
-  onSavePipeline?: (name: string) => Promise<void>;
-  canvasRef?: React.RefObject<{ getPlan: () => any; buildDeploymentPayload: (plan: any) => any; getProvider: () => "aws" | "gcp" | "azure" } | null>;
+  onSavePipeline?: (name: string, pipelineId?: string) => Promise<void>;
+  currentPipelineId?: string | null;
+  canvasRef?: React.RefObject<{ getPlan: () => any; buildDeploymentPayload: (plan: any) => any; getProvider: () => "aws" | "gcp" | "azure"; getAllServices: () => any[] } | null>;
 }
 
 const API_URL = "http://localhost:8000/estimate-cost";
@@ -83,6 +84,7 @@ export default function LeftPanel({
   canvasNodes = [],
   onPipelineSelect,
   onSavePipeline,
+  currentPipelineId,
   canvasRef,
 }: LeftPanelProps) {
   const canvasServiceCounts = useMemo(() => {
@@ -116,6 +118,8 @@ export default function LeftPanel({
   const [isEditingName, setIsEditingName] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const projectNameInputRef = useRef<HTMLInputElement>(null);
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSavedPayloadRef = useRef<string | null>(null);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const [spot, setSpot] = useState<{ x: number; y: number }>({
@@ -392,6 +396,110 @@ export default function LeftPanel({
     );
   }, [costItems]);
 
+  // Auto-save when changes are made (only if pipeline already exists)
+  useEffect(() => {
+    // Only auto-save if pipeline exists and we're not currently saving
+    if (!currentPipelineId || isSaving || !canvasRef?.current) {
+      return;
+    }
+
+    // Clear existing timeout
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    // Debounce auto-save (wait 2 seconds after last change)
+    autoSaveTimeoutRef.current = setTimeout(async () => {
+      if (!canvasRef?.current) return;
+      
+      try {
+        // Get current payload
+        const plan = canvasRef.current.getPlan();
+        const payload = canvasRef.current.buildDeploymentPayload(plan);
+        const payloadString = JSON.stringify(payload);
+        
+        // Only save if payload actually changed
+        if (lastSavedPayloadRef.current === payloadString) {
+          return;
+        }
+
+        // Validate services are configured before auto-saving
+        const { validateAllServices } = await import("./utils/service-validation");
+        const allServices = canvasRef.current.getAllServices();
+        
+        if (allServices.length === 0) {
+          return; // Don't auto-save if no services
+        }
+
+        const validationErrors = validateAllServices(allServices);
+        if (Object.keys(validationErrors).length > 0) {
+          return; // Don't auto-save if services aren't configured
+        }
+
+        const provider = canvasRef.current.getProvider();
+        const env = payload.env || "dev";
+        const region = payload.region || payload.location || "us-east-1";
+        const cloud = provider === "gcp" ? "gcp" : provider === "azure" ? "azure" : "aws";
+
+        const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+        if (!token) return;
+
+        const API_BASE = 
+          typeof window === "undefined"
+            ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+            : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+
+        const pipelineData = {
+          name: projectName.trim() || "Untitled Pipeline",
+          env: env as "dev" | "staging" | "prod",
+          cloud: cloud as "aws" | "gcp" | "azure",
+          region: region,
+          payload: payload,
+        };
+
+        console.log("Auto-saving pipeline...");
+
+        const res = await fetch(`${API_BASE}/pipelines/${currentPipelineId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+          },
+          body: JSON.stringify(pipelineData),
+        });
+
+        if (res.ok) {
+          const savedPipeline = await res.json();
+          lastSavedPayloadRef.current = payloadString;
+          console.log("Pipeline auto-saved successfully");
+          
+          // Refresh pipelines list
+          const pipelinesRes = await fetch(`${API_BASE}/pipelines/`, {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`,
+            },
+          });
+
+          if (pipelinesRes.ok) {
+            const pipelinesData = await pipelinesRes.json();
+            setPipelines(Array.isArray(pipelinesData) ? pipelinesData : []);
+          }
+        }
+      } catch (error) {
+        console.error("Auto-save failed:", error);
+        // Silently fail for auto-save
+      }
+    }, 2000); // 2 second debounce
+
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, [canvasNodes, projectName, currentPipelineId, isSaving, canvasRef]);
+
   // Handle saving pipeline
   const handleSavePipeline = async () => {
     if (!projectName.trim()) {
@@ -399,25 +507,16 @@ export default function LeftPanel({
       return;
     }
 
-    if (!onSavePipeline) {
-      // If no callback provided, save directly
-      await savePipelineDirectly();
-    } else {
-      // Use provided callback
-      setIsSaving(true);
-      try {
-        await onSavePipeline(projectName.trim());
-        setIsEditingName(false);
-      } catch (error) {
-        console.error("Error saving pipeline:", error);
-        alert("Failed to save pipeline. Please try again.");
-      } finally {
-        setIsSaving(false);
-      }
+    // Always save directly - callback is just for notification
+    const savedPipelineId = await savePipelineDirectly();
+    
+    // Notify parent if callback provided
+    if (onSavePipeline && savedPipelineId) {
+      await onSavePipeline(projectName.trim(), savedPipelineId);
     }
   };
 
-  const savePipelineDirectly = async () => {
+  const savePipelineDirectly = async (): Promise<string | undefined> => {
     setIsSaving(true);
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
@@ -434,42 +533,98 @@ export default function LeftPanel({
         return;
       }
 
+      // Validate all services are configured
+      const { validateAllServices } = await import("./utils/service-validation");
+      const allServices = canvasRef.current.getAllServices();
+      
+      if (allServices.length === 0) {
+        alert("Please add at least one service to the canvas before saving.");
+        setIsSaving(false);
+        return;
+      }
+
+      const validationErrors = validateAllServices(allServices);
+      const unconfiguredServices = Object.keys(validationErrors);
+
+      if (unconfiguredServices.length > 0) {
+        const errorMessages = Object.values(validationErrors).flat();
+        const errorMessage = `Please configure all services before saving:\n\n${errorMessages.join("\n")}\n\nClick on each service to configure it.`;
+        alert(errorMessage);
+        setIsSaving(false);
+        return;
+      }
+
+      console.log("Getting plan and payload from canvas...");
       const plan = canvasRef.current.getPlan();
       const payload = canvasRef.current.buildDeploymentPayload(plan);
-
-      // Get cloud provider from canvas
       const provider = canvasRef.current.getProvider();
-      const cloud = provider === "gcp" ? "gcp" : provider === "azure" ? "azure" : "aws";
+
+      console.log("Plan:", plan);
+      console.log("Payload:", payload);
+      console.log("Provider:", provider);
+
+      // Extract fields from payload (as user requested)
+      // The payload contains: project, env, region, location (for GCP), nodes, edges
       const env = payload.env || "dev";
       const region = payload.region || payload.location || "us-east-1";
+      const cloud = provider === "gcp" ? "gcp" : provider === "azure" ? "azure" : "aws";
+
+      // Extract env and region from payload (they come from service configs via buildDeploymentPayload)
+      // The payload already contains the correct env and region based on service configurations
+      const finalEnv = env;
+      const finalRegion = region;
 
       const API_BASE = 
         typeof window === "undefined"
           ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
           : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
-      const res = await fetch(`${API_BASE}/pipelines/`, {
-        method: "POST",
+      // Create pipeline data - payload is saved as-is, other fields extracted from payload/config
+      // Default status is "draft" for new pipelines
+      const pipelineData = {
+        name: projectName.trim(),
+        env: finalEnv as "dev" | "staging" | "prod",
+        cloud: cloud as "aws" | "gcp" | "azure",
+        region: finalRegion,
+        payload: payload, // Save payload as-is
+        status: "draft" as const, // Default status for new pipelines
+      };
+
+      console.log("Saving pipeline with data:", JSON.stringify(pipelineData, null, 2));
+
+      // Use PATCH if pipeline exists, POST if new
+      const isUpdate = currentPipelineId && currentPipelineId.trim().length > 0;
+      const url = isUpdate 
+        ? `${API_BASE}/pipelines/${currentPipelineId}`
+        : `${API_BASE}/pipelines/`;
+      const method = isUpdate ? "PATCH" : "POST";
+
+      console.log(`Saving pipeline: ${method} ${url}`);
+
+      const res = await fetch(url, {
+        method,
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          name: projectName.trim(),
-          env,
-          cloud,
-          region,
-          payload,
-        }),
+        body: JSON.stringify(pipelineData),
       });
 
       if (!res.ok) {
         const error = await res.json().catch(() => ({ detail: res.statusText }));
+        console.error("Failed to save pipeline:", error);
         throw new Error(error.detail || `Failed to save pipeline: ${res.statusText}`);
       }
 
       const savedPipeline = await res.json();
-      console.log("Pipeline saved:", savedPipeline);
+      console.log("Pipeline saved successfully:", savedPipeline);
+      console.log("Pipeline ID:", savedPipeline.id, "Type:", typeof savedPipeline.id);
+      
+      // Update project name with saved name
+      setProjectName(savedPipeline.name);
+      
+      // Update last saved payload reference
+      lastSavedPayloadRef.current = JSON.stringify(payload);
       
       // Refresh pipelines list
       const pipelinesRes = await fetch(`${API_BASE}/pipelines/`, {
@@ -486,10 +641,14 @@ export default function LeftPanel({
       }
 
       setIsEditingName(false);
-      alert("Pipeline saved successfully! 🎉");
+      
+      // Return pipeline ID for parent component (convert to string if needed)
+      const pipelineId = typeof savedPipeline.id === 'string' ? savedPipeline.id : String(savedPipeline.id);
+      return pipelineId;
     } catch (error: any) {
       console.error("Error saving pipeline:", error);
       alert(error?.message || "Failed to save pipeline. Please try again.");
+      throw error;
     } finally {
       setIsSaving(false);
     }

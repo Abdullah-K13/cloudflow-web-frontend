@@ -399,16 +399,16 @@ export default function SettingsClientBasic() {
                 </div>
               ) : (
                 <>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label="Email" full>
-                      <input
-                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="Enter email address"
-                      />
-                    </Field>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Email" full>
+                  <input
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Enter email address"
+                  />
+                </Field>
                     <Field label="Role" full>
                       <input
                         className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
@@ -418,32 +418,32 @@ export default function SettingsClientBasic() {
                         placeholder="Enter role (e.g., Data Engineer, Admin)"
                       />
                     </Field>
-                  </div>
+              </div>
 
-                  <Divider />
+              <Divider />
 
                   <div className="space-y-4">
                     <h3 className="text-sm font-medium text-gray-800">Change Password</h3>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <Field label="New password">
-                        <input
-                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
-                          type="password"
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="New password">
+                  <input
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                    type="password"
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           placeholder="Enter new password (leave empty to keep current)"
-                        />
-                      </Field>
+                  />
+                </Field>
                       <div className="flex items-end">
                         <p className="text-xs text-gray-500">
                           Leave empty to keep your current password. Minimum 8 characters.
                         </p>
                       </div>
                     </div>
-                  </div>
+              </div>
 
-                  <div className="flex justify-end pt-2">
-                    <button
+              <div className="flex justify-end pt-2">
+                <button
                       className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-100 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                       onClick={saveProfile}
                       disabled={savingProfile}
@@ -456,8 +456,8 @@ export default function SettingsClientBasic() {
                       ) : (
                         "Save changes"
                       )}
-                    </button>
-                  </div>
+                </button>
+              </div>
                 </>
               )}
             </div>
