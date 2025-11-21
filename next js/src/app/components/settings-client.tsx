@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   Settings as SettingsIcon,
   Users, Crown,
@@ -27,12 +27,37 @@ export default function SettingsClientBasic() {
 
   /** tabs */
   type Tab = "profile" |  "api-keys" | "billing" | "credentials";
-  const [tab, setTab] = useState<Tab>("profile");
+  // Check URL hash for initial tab (e.g., /settings#credentials)
+  const [tab, setTab] = useState<Tab>(() => {
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash.replace("#", "");
+      if (hash === "credentials" || hash === "profile" || hash === "api-keys" || hash === "billing") {
+        return hash as Tab;
+      }
+    }
+    return "profile";
+  });
+
+  // Update tab when hash changes
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace("#", "");
+      if (hash === "credentials" || hash === "profile" || hash === "api-keys" || hash === "billing") {
+        setTab(hash as Tab);
+      }
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    // Also check on mount in case hash is already set
+    handleHashChange();
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
 
   /** profile */
-  const [firstName, setFirstName] = useState("John");
-  const [lastName, setLastName] = useState("Doe");
-  const [email, setEmail] = useState("john.doe@company.com");
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [loadingUser, setLoadingUser] = useState(true);
+  const [savingProfile, setSavingProfile] = useState(false);
 
   /** org */
   const [orgName, setOrgName] = useState("CloudFlow Technologies");
@@ -71,8 +96,116 @@ export default function SettingsClientBasic() {
   const [gcpProjectId, setGcpProjectId] = useState("");
   const [gcpJson, setGcpJson] = useState("");
 
+  // Fetch current user data on mount
+  useEffect(() => {
+    const fetchUserData = async () => {
+      try {
+        setLoadingUser(true);
+        const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+        if (!token) {
+          setLoadingUser(false);
+          return;
+        }
+
+        const API_BASE = 
+          typeof window === "undefined"
+            ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+            : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+
+        const res = await fetch(`${API_BASE}/auth/me`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+          },
+        });
+
+        if (res.ok) {
+          const userData = await res.json();
+          setEmail(userData.email || "");
+          setRole(userData.role || "");
+        }
+      } catch (error) {
+        console.error("Error fetching user data:", error);
+      } finally {
+        setLoadingUser(false);
+      }
+    };
+
+    fetchUserData();
+  }, []);
+
   /** actions */
   const save = (section: string) => flash(`Saved ${section}.`);
+
+  const saveProfile = async () => {
+    try {
+      setSavingProfile(true);
+      const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+      if (!token) {
+        flash("Please log in to update your profile", "err");
+        setSavingProfile(false);
+        return;
+      }
+
+      const API_BASE = 
+        typeof window === "undefined"
+          ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+          : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+
+      // Build update payload - only include fields that have changed
+      const updatePayload: { email?: string; password?: string; role?: string } = {};
+      
+      if (email.trim()) {
+        updatePayload.email = email.trim();
+      }
+      
+      if (newPassword.trim()) {
+        if (newPassword.length < 8) {
+          flash("Password must be at least 8 characters", "err");
+          setSavingProfile(false);
+          return;
+        }
+        updatePayload.password = newPassword.trim();
+      }
+      
+      if (role.trim()) {
+        updatePayload.role = role.trim();
+      }
+
+      // Don't send empty payload
+      if (Object.keys(updatePayload).length === 0) {
+        flash("No changes to save", "err");
+        setSavingProfile(false);
+        return;
+      }
+
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify(updatePayload),
+      });
+
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(error.detail || `Failed to update profile: ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      flash("Profile updated successfully!", "ok");
+      
+      // Clear password field after successful save
+      setNewPassword("");
+    } catch (error: any) {
+      console.error("Error updating profile:", error);
+      flash(error?.message || "Failed to update profile. Please try again.", "err");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
   const copy = async (v: string, label = "Copied") => {
     try {
       await navigator.clipboard.writeText(v);
@@ -260,76 +393,73 @@ export default function SettingsClientBasic() {
               desc="Update personal info and password"
             />
             <div className="space-y-6 p-6">
-              <div className="flex items-center gap-4">
-                <div className="grid h-20 w-20 place-items-center rounded-full bg-gray-100 text-lg font-semibold text-gray-600">
-                  JD
+              {loadingUser ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="h-8 w-8 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin" />
                 </div>
-                <div className="flex items-center gap-2">
-                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 transition-colors hover:border-teal-300 hover:text-teal-700">
-                    <input type="file" className="hidden" />
-                    Change Avatar
-                  </label>
-                  <p className="text-xs text-gray-500">JPG, PNG, GIF. Max 5MB.</p>
-                </div>
-              </div>
+              ) : (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Email" full>
+                      <input
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="Enter email address"
+                      />
+                    </Field>
+                    <Field label="Role" full>
+                      <input
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                        type="text"
+                        value={role}
+                        onChange={(e) => setRole(e.target.value)}
+                        placeholder="Enter role (e.g., Data Engineer, Admin)"
+                      />
+                    </Field>
+                  </div>
 
-              <Divider />
+                  <Divider />
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="First name">
-                  <input
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    placeholder="Enter first name"
-                  />
-                </Field>
-                <Field label="Last name">
-                  <input
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    placeholder="Enter last name"
-                  />
-                </Field>
-                <Field label="Email" full>
-                  <input
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Enter email address"
-                  />
-                </Field>
-              </div>
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-medium text-gray-800">Change Password</h3>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Field label="New password">
+                        <input
+                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                          type="password"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="Enter new password (leave empty to keep current)"
+                        />
+                      </Field>
+                      <div className="flex items-end">
+                        <p className="text-xs text-gray-500">
+                          Leave empty to keep your current password. Minimum 8 characters.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
-              <Divider />
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Current password">
-                  <input
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
-                    type="password"
-                    placeholder="Enter current password"
-                  />
-                </Field>
-                <Field label="New password">
-                  <input
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
-                    type="password"
-                    placeholder="Enter new password"
-                  />
-                </Field>
-              </div>
-
-              <div className="flex justify-end pt-2">
-                <button
-                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all hover:border-gray-400 hover:bg-gray-50 hover:shadow focus:outline-none focus:ring-2 focus:ring-orange-100 focus:ring-offset-2"
-                  onClick={() => save("profile")}
-                >
-                  Save changes
-                </button>
-              </div>
+                  <div className="flex justify-end pt-2">
+                    <button
+                      className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-100 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={saveProfile}
+                      disabled={savingProfile}
+                    >
+                      {savingProfile ? (
+                        <span className="flex items-center gap-2">
+                          <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Saving...
+                        </span>
+                      ) : (
+                        "Save changes"
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </Card>
         )}

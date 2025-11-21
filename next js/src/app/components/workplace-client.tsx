@@ -36,9 +36,10 @@ export default function WorkplaceClient() {
   const [isDraggingExisting, setIsDraggingExisting] = useState(false);
   const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState(false);
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
-  const canvasRef = useRef<HTMLDivElement>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [selectedForCost, setSelectedForCost] = useState<{ id: string; type: string }[]>([]);
-
+  const [projectName, setProjectName] = useState("My Project");
+  const canvasRef = useRef<{ getPlan: () => any; getPrompt: () => string; buildDeploymentPayload: (plan: any) => any; getProvider: () => "aws" | "gcp" | "azure" } | null>(null);
 
   useEffect(() => {
     setIsClient(true);
@@ -137,13 +138,13 @@ const [nodesOnCanvasForCost, setNodesOnCanvasForCost] = useState<{ id: string; t
       setItems((prev) => prev.filter((item) => item.id !== active.id));
       setSelectedService(null);
     } else if (over?.id === "canvas-dropzone" && !isDraggingExisting) {
-      if (!canvasRef.current) return;
+      if (!canvasContainerRef.current) return;
 
-      const canvasRect = canvasRef.current.getBoundingClientRect();
+      const canvasRect = canvasContainerRef.current.getBoundingClientRect();
       
       // Get the actual drop position more accurately
-      const reactFlowWrapper = canvasRef.current.querySelector('.react-flow__renderer');
-      const reactFlowViewport = canvasRef.current.querySelector('.react-flow__viewport');
+      const reactFlowWrapper = canvasContainerRef.current.querySelector('.react-flow__renderer');
+      const reactFlowViewport = canvasContainerRef.current.querySelector('.react-flow__viewport');
       
       let dropX = 100; // Default fallback
       let dropY = 100; // Default fallback
@@ -229,24 +230,26 @@ const [nodesOnCanvasForCost, setNodesOnCanvasForCost] = useState<{ id: string; t
         <LeftPanel 
           isCollapsed={isLeftPanelCollapsed}
           onToggle={handleLeftPanelToggle}
-            // selectedNodes={selectedForCost}   // <-- add this
-              canvasNodes={nodesOnCanvasForCost}   // 👈 add this
-
-
+          canvasNodes={nodesOnCanvasForCost}
+          projectName={projectName}
+          onSavePipeline={async (name: string) => {
+            setProjectName(name);
+            // The LeftPanel will handle the actual save via canvasRef
+          }}
+          canvasRef={canvasRef}
         />
         <div className="flex flex-col flex-1 overflow-hidden">
           {/* <TopBar /> */}
-          <div className="flex-1 relative">
+          <div className="flex-1 relative" ref={canvasContainerRef} id="canvas-dropzone">
            <ReactFlowProvider>
 <Canvas
+  ref={canvasRef}
   items={items}
   updateItemPosition={updateItemPosition}
   onServiceClick={handleServiceClick}
   onDeleteService={handleDeleteService}
-    onSelectedNodesChange={setSelectedForCost}   // <-- add this
-      onCanvasNodesChange={setNodesOnCanvasForCost}   // 👈 add this
-
-
+  onSelectedNodesChange={setSelectedForCost}
+  onCanvasNodesChange={setNodesOnCanvasForCost}
 />
 </ReactFlowProvider>
             <DeleteZone
