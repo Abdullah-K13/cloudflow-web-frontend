@@ -34,7 +34,15 @@ interface ServiceConfigPanelProps {
 const getServiceKey = (svc: { id?: string; label?: string }) => {
   const raw = (svc.id || svc.label || "").toString().toLowerCase();
   const base = raw.split("-")[0].split("_")[0].split(":")[0].replace(/\s+/g, "");
-  return base.startsWith("aws") ? base.slice(3) : base;
+  if (base.startsWith("aws")) return base.slice(3);
+  if (base.startsWith("gcp")) return base.slice(3);
+  // Handle GCP service IDs
+  if (base === "gcp-storage" || base === "storage") return "gcpstorage";
+  if (base === "pubsub") return "gcppubsub";
+  if (base === "cloud-run" || base === "cloudrun") return "gcpcloudrun";
+  if (base === "secret-manager" || base === "secretmanager") return "gcpsecretmanager";
+  if (base === "firestore") return "gcpfirestore";
+  return base;
 };
 
 const defaultDetailsFor = (service: { id?: string; label?: string }) => {
@@ -97,6 +105,47 @@ const defaultDetailsFor = (service: { id?: string; label?: string }) => {
         dbName: "",
         publiclyAccessible: false,
       };
+    // GCP Services
+    case "gcpstorage":
+    case "gcp-storage":
+      return {
+        bucketName: "",
+        uniformAccess: true,
+        forceDestroy: false,
+        labels: {},
+      };
+    case "gcppubsub":
+    case "pubsub":
+      return {
+        topicName: "",
+        labels: {},
+      };
+    case "gcpcloudrun":
+    case "cloud-run":
+    case "cloudrun":
+      return {
+        image: "gcr.io/cloudrun/hello",
+        env: {},
+        allowUnauthenticated: true,
+        cpu: "1000m",
+        memory: "512Mi",
+        minInstances: 0,
+        maxInstances: 10,
+        concurrency: 80,
+      };
+    case "gcpsecretmanager":
+    case "secret-manager":
+    case "secretmanager":
+      return {
+        secretValue: "",
+        labels: {},
+      };
+    case "gcpfirestore":
+    case "firestore":
+      return {
+        locationId: "us-central",
+        databaseId: "(default)",
+      };
     default:
       return {};
   }
@@ -121,6 +170,24 @@ function validate(serviceLabel: string, cfg: ServiceConfig): Errors {
       e.bucketName = "3–63 chars, lowercase letters, numbers, dots, hyphens";
     const region = d.region?.trim() || cfg.region?.trim();
     if (!region) e.s3Region = "Region is required";
+  }
+  // GCP Service Validations
+  if (serviceLabel === "GCP Storage") {
+    if (!d.bucketName?.trim()) e.bucketName = "Bucket name is required";
+    else if (d.bucketName.length < 3 || d.bucketName.length > 63)
+      e.bucketName = "Bucket name must be 3-63 characters";
+  }
+  if (serviceLabel === "Pub/Sub") {
+    if (!d.topicName?.trim()) e.topicName = "Topic name is required";
+  }
+  if (serviceLabel === "Cloud Run") {
+    if (!d.image?.trim()) e.image = "Container image is required";
+  }
+  if (serviceLabel === "GCP Secret Manager") {
+    // Secret value is optional, but name should be validated if provided
+  }
+  if (serviceLabel === "GCP Firestore") {
+    if (!d.locationId?.trim()) e.locationId = "Location ID is required";
   }
   return e;
 }
@@ -736,11 +803,317 @@ case "AWS SQS":
         </SectionCard>
       );
 
+    // GCP Services
+    case "GCP Storage":
+      return (
+        <SectionCard
+          title="Cloud Storage Settings"
+          icon={<img src="/gcp-icons/Google_Storage-Logo.wine.png" alt="" className="h-4 w-4" />}
+        >
+          <div className="space-y-5">
+            <div>
+              <Label>Bucket Name</Label>
+              <TextInput
+                id="bucketName"
+                value={d.bucketName || ""}
+                onChange={(e) => updateDetails({ bucketName: e.target.value })}
+                placeholder="my-bucket-name"
+                error={errors.bucketName}
+              />
+              <FieldError id="bucketName-error" message={errors.bucketName} />
+              <p className="mt-1 text-xs text-slate-500">
+                Must be globally unique. 3-63 characters, lowercase letters, numbers, hyphens.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-6">
+              <Checkbox
+                checked={!!d.uniformAccess}
+                onChange={(e) => updateDetails({ uniformAccess: e.target.checked })}
+                label="Uniform Bucket-Level Access"
+              />
+              <Checkbox
+                checked={!!d.forceDestroy}
+                onChange={(e) => updateDetails({ forceDestroy: e.target.checked })}
+                label="Force Destroy (Delete non-empty bucket)"
+              />
+            </div>
+          </div>
+        </SectionCard>
+      );
+
+    case "Pub/Sub":
+      return (
+        <SectionCard
+          title="Pub/Sub Settings"
+          icon={<img src="/gcp-icons/google-cloud-pub-sub-logo.png" alt="" className="h-4 w-4" />}
+        >
+          <div className="space-y-5">
+            <div>
+              <Label>Topic Name</Label>
+              <TextInput
+                id="topicName"
+                value={d.topicName || ""}
+                onChange={(e) => updateDetails({ topicName: e.target.value })}
+                placeholder="my-topic"
+                error={errors.topicName}
+              />
+              <FieldError id="topicName-error" message={errors.topicName} />
+              <p className="mt-1 text-xs text-slate-500">
+                Topic name within the project. Must be 3-255 characters.
+              </p>
+            </div>
+          </div>
+        </SectionCard>
+      );
+
+    case "Cloud Run":
+      return (
+        <SectionCard
+          title="Cloud Run Settings"
+          icon={<img src="/gcp-icons/google-cloud-run-logo-png.png" alt="" className="h-4 w-4" />}
+        >
+          <div className="space-y-5">
+            <div>
+              <Label>Container Image</Label>
+              <TextInput
+                id="image"
+                value={d.image || "gcr.io/cloudrun/hello"}
+                onChange={(e) => updateDetails({ image: e.target.value })}
+                placeholder="gcr.io/cloudrun/hello"
+                error={errors.image}
+              />
+              <FieldError id="image-error" message={errors.image} />
+              <p className="mt-1 text-xs text-slate-500">
+                Container image URL (e.g., gcr.io/project/image:tag)
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>CPU</Label>
+                <SelectInput
+                  id="cpu"
+                  value={d.cpu || "1000m"}
+                  onChange={(e) => updateDetails({ cpu: e.target.value })}
+                  options={[
+                    { value: "1000m", label: "1 vCPU (1000m)" },
+                    { value: "2000m", label: "2 vCPU (2000m)" },
+                    { value: "4000m", label: "4 vCPU (4000m)" },
+                    { value: "8000m", label: "8 vCPU (8000m)" },
+                  ]}
+                />
+              </div>
+              <div>
+                <Label>Memory</Label>
+                <SelectInput
+                  id="memory"
+                  value={d.memory || "512Mi"}
+                  onChange={(e) => updateDetails({ memory: e.target.value })}
+                  options={[
+                    { value: "128Mi", label: "128 Mi" },
+                    { value: "256Mi", label: "256 Mi" },
+                    { value: "512Mi", label: "512 Mi" },
+                    { value: "1Gi", label: "1 Gi" },
+                    { value: "2Gi", label: "2 Gi" },
+                    { value: "4Gi", label: "4 Gi" },
+                  ]}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Min Instances</Label>
+                <NumberInput
+                  id="minInstances"
+                  value={d.minInstances ?? 0}
+                  onChange={(e) => updateDetails({ minInstances: Number(e.target.value) })}
+                  min={0}
+                  max={100}
+                />
+              </div>
+              <div>
+                <Label>Max Instances</Label>
+                <NumberInput
+                  id="maxInstances"
+                  value={d.maxInstances ?? 10}
+                  onChange={(e) => updateDetails({ maxInstances: Number(e.target.value) })}
+                  min={1}
+                  max={1000}
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label>Concurrency</Label>
+              <NumberInput
+                id="concurrency"
+                value={d.concurrency ?? 80}
+                onChange={(e) => updateDetails({ concurrency: Number(e.target.value) })}
+                min={1}
+                max={1000}
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Maximum number of concurrent requests per instance
+              </p>
+            </div>
+
+            <div>
+              <Checkbox
+                checked={!!d.allowUnauthenticated}
+                onChange={(e) => updateDetails({ allowUnauthenticated: e.target.checked })}
+                label="Allow Unauthenticated Access"
+              />
+            </div>
+
+            <div className="rounded-2xl bg-slate-50/60 border border-slate-100 p-3">
+              <div className="mb-2 flex items-center gap-2 text-slate-700 text-sm font-medium">
+                <Info className="h-4 w-4 text-slate-400" />
+                Environment Variables
+              </div>
+              <div className="space-y-2">
+                {Object.keys(d.env || {}).length === 0 ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <TextInput
+                      id="env-key-0"
+                      value=""
+                      onChange={(e) => {
+                        const env = { ...(d.env || {}) };
+                        if (e.target.value) env[e.target.value] = "";
+                        updateDetails({ env });
+                      }}
+                      placeholder="KEY"
+                    />
+                    <TextInput
+                      id="env-val-0"
+                      value=""
+                      onChange={(e) => {
+                        const env = { ...(d.env || {}) };
+                        const firstKey = Object.keys(env)[0] || "";
+                        if (firstKey) env[firstKey] = e.target.value;
+                        updateDetails({ env });
+                      }}
+                      placeholder="value"
+                    />
+                  </div>
+                ) : (
+                  Object.entries(d.env || {}).map(([key, value], idx) => (
+                    <div key={idx} className="grid grid-cols-2 gap-3">
+                      <TextInput
+                        id={`env-key-${idx}`}
+                        value={key}
+                        onChange={(e) => {
+                          const env = { ...(d.env || {}) };
+                          delete env[key];
+                          if (e.target.value) env[e.target.value] = value;
+                          updateDetails({ env });
+                        }}
+                        placeholder="KEY"
+                      />
+                      <TextInput
+                        id={`env-val-${idx}`}
+                        value={String(value || "")}
+                        onChange={(e) => {
+                          const env = { ...(d.env || {}) };
+                          env[key] = e.target.value;
+                          updateDetails({ env });
+                        }}
+                        placeholder="value"
+                      />
+                    </div>
+                  ))
+                )}
+                <button
+                  onClick={() => {
+                    const env = { ...(d.env || {}), [`ENV_${Date.now()}`]: "" };
+                    updateDetails({ env });
+                  }}
+                  className="text-xs text-orange-600 hover:text-orange-700"
+                >
+                  + Add Environment Variable
+                </button>
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+      );
+
+    case "GCP Secret Manager":
+      return (
+        <SectionCard
+          title="Secret Manager Settings"
+          icon={<img src="/gcp-icons/secret manager.png" alt="" className="h-4 w-4" />}
+        >
+          <div className="space-y-5">
+            <div>
+              <Label>Secret Value (Optional)</Label>
+              <textarea
+                id="secretValue"
+                value={d.secretValue || ""}
+                onChange={(e) => updateDetails({ secretValue: e.target.value })}
+                rows={4}
+                className={baseInputClass(undefined) + " resize-none"}
+                placeholder="Enter secret value (will be stored securely)"
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Initial secret value. Leave empty to create an empty secret.
+              </p>
+            </div>
+          </div>
+        </SectionCard>
+      );
+
+    case "GCP Firestore":
+      return (
+        <SectionCard
+          title="Firestore Settings"
+          icon={<img src="/gcp-icons/firestore.png" alt="" className="h-4 w-4" />}
+        >
+          <div className="space-y-5">
+            <div>
+              <Label>Location ID</Label>
+              <SelectInput
+                id="locationId"
+                value={d.locationId || "us-central"}
+                onChange={(e) => updateDetails({ locationId: e.target.value })}
+                options={[
+                  { value: "us-central", label: "us-central (Multi-region)" },
+                  { value: "us-east1", label: "us-east1 (South Carolina)" },
+                  { value: "us-east4", label: "us-east4 (Northern Virginia)" },
+                  { value: "us-west1", label: "us-west1 (Oregon)" },
+                  { value: "us-west2", label: "us-west2 (Los Angeles)" },
+                  { value: "europe-west1", label: "europe-west1 (Belgium)" },
+                  { value: "europe-west2", label: "europe-west2 (London)" },
+                  { value: "asia-northeast1", label: "asia-northeast1 (Tokyo)" },
+                  { value: "asia-southeast1", label: "asia-southeast1 (Singapore)" },
+                ]}
+                error={errors.locationId}
+              />
+              <FieldError id="locationId-error" message={errors.locationId} />
+            </div>
+
+            <div>
+              <Label>Database ID</Label>
+              <TextInput
+                id="databaseId"
+                value={d.databaseId || "(default)"}
+                onChange={(e) => updateDetails({ databaseId: e.target.value })}
+                placeholder="(default)"
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Database ID. Use "(default)" for the default database.
+              </p>
+            </div>
+          </div>
+        </SectionCard>
+      );
+
     default:
       return (
         <SectionCard title="Settings">
           <div className="text-sm text-slate-600">
-            No specific configuration for “{service.label}”.
+            No specific configuration for "{service.label}".
           </div>
         </SectionCard>
       );

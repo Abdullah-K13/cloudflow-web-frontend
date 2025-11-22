@@ -39,16 +39,19 @@ apiClient.interceptors.request.use(
         config.url?.includes("/auth/login") || 
         config.url?.includes("/auth/register");
       
-      // For endpoints that don't need credentials (login/register/cloud-credentials),
+      // For endpoints that don't need credentials (login/register/cloud-credentials/pipelines/auth/me),
       // don't use withCredentials to avoid CORS issues when backend uses wildcard CORS
+      // Since we use Authorization header for auth (not cookies), we don't need withCredentials
       const shouldSkipCredentials = 
         isPublicAuthEndpoint || 
-        config.url?.includes("/auth/cloud-credentials");
+        config.url?.includes("/auth/cloud-credentials") ||
+        config.url?.includes("/auth/me") ||
+        config.url?.includes("/pipelines");
       
       if (shouldSkipCredentials) {
         config.withCredentials = false;
       } else {
-        // For other endpoints, use credentials to send cookies
+        // For other endpoints, use credentials to send cookies (if needed)
         config.withCredentials = true;
       }
       

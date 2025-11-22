@@ -1,13 +1,24 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, ChevronDown, ChevronRight, Workflow, Plus } from "lucide-react";
+import { Search, ChevronDown, ChevronRight, Workflow, Plus, Save, Edit2, X } from "lucide-react";
 
 type ServiceKey = "s3" | "lambda" | "sqs" | "sns" | "dynamodb";
 
 interface SelectedNode {
   id: string;
   type: string; // e.g. "s3", "lambda", ...
+}
+
+interface Pipeline {
+  id: string;
+  name: string;
+  env: string;
+  cloud: string;
+  region: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface LeftPanelProps {
@@ -17,6 +28,10 @@ interface LeftPanelProps {
   isCollapsed?: boolean;
   onToggle?: () => void;
   canvasNodes?: { id: string; type: string }[];
+  onPipelineSelect?: (pipeline: Pipeline) => void;
+  onSavePipeline?: (name: string, pipelineId?: string) => Promise<void>;
+  currentPipelineId?: string | null;
+  canvasRef?: React.RefObject<{ getPlan: () => any; buildDeploymentPayload: (plan: any) => any; getProvider: () => "aws" | "gcp" | "azure"; getAllServices: () => any[] } | null>;
 }
 
 const API_URL = "http://localhost:8000/estimate-cost";
@@ -64,9 +79,13 @@ type CostItem = {
 };
 
 export default function LeftPanel({
-  projectName = "My Project",
-  pipelines = ["Data Pipeline 1", "Analytics Pipeline", "ETL Process"],
+  projectName: initialProjectName = "My Project",
+  pipelines: initialPipelines = [],
   canvasNodes = [],
+  onPipelineSelect,
+  onSavePipeline,
+  currentPipelineId,
+  canvasRef,
 }: LeftPanelProps) {
   const canvasServiceCounts = useMemo(() => {
     const map = new Map<ServiceKey, number>();
@@ -92,6 +111,15 @@ export default function LeftPanel({
   const [width, setWidth] = useState(272);
   const [isResizing, setIsResizing] = useState(false);
   const [q, setQ] = useState("");
+  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
+  const [pipelinesLoading, setPipelinesLoading] = useState(false);
+  const [pipelinesError, setPipelinesError] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState(initialProjectName);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const projectNameInputRef = useRef<HTMLInputElement>(null);
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSavedPayloadRef = useRef<string | null>(null);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const [spot, setSpot] = useState<{ x: number; y: number }>({
@@ -100,6 +128,109 @@ export default function LeftPanel({
   });
 
   useEffect(() => setMounted(true), []);
+
+  // Update project name when prop changes
+  useEffect(() => {
+    setProjectName(initialProjectName);
+  }, [initialProjectName]);
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (isEditingName && projectNameInputRef.current) {
+      projectNameInputRef.current.focus();
+      projectNameInputRef.current.select();
+    }
+  }, [isEditingName]);
+
+  // Store initial pipelines in a ref to avoid dependency issues
+  const initialPipelinesRef = useRef(initialPipelines);
+  useEffect(() => {
+    initialPipelinesRef.current = initialPipelines;
+  }, [initialPipelines]);
+
+  // Fetch pipelines from API - only run once on mount
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchPipelines = async () => {
+      try {
+        setPipelinesLoading(true);
+        setPipelinesError(null);
+
+        const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+        if (!token) {
+          // If no token, use initial pipelines or empty array
+          if (!cancelled) {
+            const fallbackPipelines = initialPipelinesRef.current.map((name, idx) => ({
+              id: `placeholder-${idx}`,
+              name,
+              env: "dev",
+              cloud: "aws",
+              region: "us-east-1",
+              status: "draft",
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }));
+            setPipelines(fallbackPipelines);
+            setPipelinesLoading(false);
+          }
+          return;
+        }
+
+        const API_BASE = 
+          typeof window === "undefined"
+            ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+            : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+
+        const res = await fetch(`${API_BASE}/pipelines/`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+          },
+        });
+
+        if (cancelled) return;
+
+        if (!res.ok) {
+          throw new Error(`Failed to fetch pipelines: ${res.statusText}`);
+        }
+
+        const data = await res.json();
+        if (!cancelled) {
+          setPipelines(Array.isArray(data) ? data : []);
+        }
+      } catch (error: any) {
+        if (cancelled) return;
+        console.error("Error fetching pipelines:", error);
+        setPipelinesError(error?.message || "Failed to load pipelines");
+        // Fallback to initial pipelines if provided
+        const fallbackPipelines = initialPipelinesRef.current;
+        if (fallbackPipelines.length > 0) {
+          setPipelines(fallbackPipelines.map((name, idx) => ({
+            id: `placeholder-${idx}`,
+            name,
+            env: "dev",
+            cloud: "aws",
+            region: "us-east-1",
+            status: "draft",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })));
+        }
+      } finally {
+        if (!cancelled) {
+          setPipelinesLoading(false);
+        }
+      }
+    };
+
+    fetchPipelines();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []); // Empty dependency array - only run once on mount
 
   // --- resizer
   const onResizeStart = (e: React.MouseEvent) => {
@@ -126,7 +257,7 @@ export default function LeftPanel({
   // --- search
   const norm = (s: string) => s.toLowerCase().replace(/\s|[_-]+/g, "");
   const filteredPipelines = useMemo(
-    () => pipelines.filter((p) => norm(p).includes(norm(q))),
+    () => pipelines.filter((p) => norm(p.name).includes(norm(q))),
     [pipelines, q]
   );
 
@@ -265,6 +396,264 @@ export default function LeftPanel({
     );
   }, [costItems]);
 
+  // Auto-save when changes are made (only if pipeline already exists)
+  useEffect(() => {
+    // Only auto-save if pipeline exists and we're not currently saving
+    if (!currentPipelineId || isSaving || !canvasRef?.current) {
+      return;
+    }
+
+    // Clear existing timeout
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    // Debounce auto-save (wait 2 seconds after last change)
+    autoSaveTimeoutRef.current = setTimeout(async () => {
+      if (!canvasRef?.current) return;
+      
+      try {
+        // Get current payload
+        const plan = canvasRef.current.getPlan();
+        const payload = canvasRef.current.buildDeploymentPayload(plan);
+        const payloadString = JSON.stringify(payload);
+        
+        // Only save if payload actually changed
+        if (lastSavedPayloadRef.current === payloadString) {
+          return;
+        }
+
+        // Validate services are configured before auto-saving
+        const { validateAllServices } = await import("./utils/service-validation");
+        const allServices = canvasRef.current.getAllServices();
+        
+        if (allServices.length === 0) {
+          return; // Don't auto-save if no services
+        }
+
+        const validationErrors = validateAllServices(allServices);
+        if (Object.keys(validationErrors).length > 0) {
+          return; // Don't auto-save if services aren't configured
+        }
+
+        const provider = canvasRef.current.getProvider();
+        const env = payload.env || "dev";
+        const region = payload.region || payload.location || "us-east-1";
+        const cloud = provider === "gcp" ? "gcp" : provider === "azure" ? "azure" : "aws";
+
+        const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+        if (!token) return;
+
+        const API_BASE = 
+          typeof window === "undefined"
+            ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+            : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+
+        const pipelineData = {
+          name: projectName.trim() || "Untitled Pipeline",
+          env: env as "dev" | "staging" | "prod",
+          cloud: cloud as "aws" | "gcp" | "azure",
+          region: region,
+          payload: payload,
+        };
+
+        console.log("Auto-saving pipeline...");
+
+        const res = await fetch(`${API_BASE}/pipelines/${currentPipelineId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+          },
+          body: JSON.stringify(pipelineData),
+        });
+
+        if (res.ok) {
+          const savedPipeline = await res.json();
+          lastSavedPayloadRef.current = payloadString;
+          console.log("Pipeline auto-saved successfully");
+          
+          // Refresh pipelines list
+          const pipelinesRes = await fetch(`${API_BASE}/pipelines/`, {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`,
+            },
+          });
+
+          if (pipelinesRes.ok) {
+            const pipelinesData = await pipelinesRes.json();
+            setPipelines(Array.isArray(pipelinesData) ? pipelinesData : []);
+          }
+        }
+      } catch (error) {
+        console.error("Auto-save failed:", error);
+        // Silently fail for auto-save
+      }
+    }, 2000); // 2 second debounce
+
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, [canvasNodes, projectName, currentPipelineId, isSaving, canvasRef]);
+
+  // Handle saving pipeline
+  const handleSavePipeline = async () => {
+    if (!projectName.trim()) {
+      alert("Please enter a pipeline name");
+      return;
+    }
+
+    // Always save directly - callback is just for notification
+    const savedPipelineId = await savePipelineDirectly();
+    
+    // Notify parent if callback provided
+    if (onSavePipeline && savedPipelineId) {
+      await onSavePipeline(projectName.trim(), savedPipelineId);
+    }
+  };
+
+  const savePipelineDirectly = async (): Promise<string | undefined> => {
+    setIsSaving(true);
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+      if (!token) {
+        alert("Please log in to save pipelines");
+        setIsSaving(false);
+        return;
+      }
+
+      // Get plan and payload from canvas
+      if (!canvasRef?.current) {
+        alert("Canvas not available. Please ensure the canvas is loaded.");
+        setIsSaving(false);
+        return;
+      }
+
+      // Validate all services are configured
+      const { validateAllServices } = await import("./utils/service-validation");
+      const allServices = canvasRef.current.getAllServices();
+      
+      if (allServices.length === 0) {
+        alert("Please add at least one service to the canvas before saving.");
+        setIsSaving(false);
+        return;
+      }
+
+      const validationErrors = validateAllServices(allServices);
+      const unconfiguredServices = Object.keys(validationErrors);
+
+      if (unconfiguredServices.length > 0) {
+        const errorMessages = Object.values(validationErrors).flat();
+        const errorMessage = `Please configure all services before saving:\n\n${errorMessages.join("\n")}\n\nClick on each service to configure it.`;
+        alert(errorMessage);
+        setIsSaving(false);
+        return;
+      }
+
+      console.log("Getting plan and payload from canvas...");
+      const plan = canvasRef.current.getPlan();
+      const payload = canvasRef.current.buildDeploymentPayload(plan);
+      const provider = canvasRef.current.getProvider();
+
+      console.log("Plan:", plan);
+      console.log("Payload:", payload);
+      console.log("Provider:", provider);
+
+      // Extract fields from payload (as user requested)
+      // The payload contains: project, env, region, location (for GCP), nodes, edges
+      const env = payload.env || "dev";
+      const region = payload.region || payload.location || "us-east-1";
+      const cloud = provider === "gcp" ? "gcp" : provider === "azure" ? "azure" : "aws";
+
+      // Extract env and region from payload (they come from service configs via buildDeploymentPayload)
+      // The payload already contains the correct env and region based on service configurations
+      const finalEnv = env;
+      const finalRegion = region;
+
+      const API_BASE = 
+        typeof window === "undefined"
+          ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+          : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+
+      // Create pipeline data - payload is saved as-is, other fields extracted from payload/config
+      // Default status is "draft" for new pipelines
+      const pipelineData = {
+        name: projectName.trim(),
+        env: finalEnv as "dev" | "staging" | "prod",
+        cloud: cloud as "aws" | "gcp" | "azure",
+        region: finalRegion,
+        payload: payload, // Save payload as-is
+        status: "draft" as const, // Default status for new pipelines
+      };
+
+      console.log("Saving pipeline with data:", JSON.stringify(pipelineData, null, 2));
+
+      // Use PATCH if pipeline exists, POST if new
+      const isUpdate = currentPipelineId && currentPipelineId.trim().length > 0;
+      const url = isUpdate 
+        ? `${API_BASE}/pipelines/${currentPipelineId}`
+        : `${API_BASE}/pipelines/`;
+      const method = isUpdate ? "PATCH" : "POST";
+
+      console.log(`Saving pipeline: ${method} ${url}`);
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify(pipelineData),
+      });
+
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ detail: res.statusText }));
+        console.error("Failed to save pipeline:", error);
+        throw new Error(error.detail || `Failed to save pipeline: ${res.statusText}`);
+      }
+
+      const savedPipeline = await res.json();
+      console.log("Pipeline saved successfully:", savedPipeline);
+      console.log("Pipeline ID:", savedPipeline.id, "Type:", typeof savedPipeline.id);
+      
+      // Update project name with saved name
+      setProjectName(savedPipeline.name);
+      
+      // Update last saved payload reference
+      lastSavedPayloadRef.current = JSON.stringify(payload);
+      
+      // Refresh pipelines list
+      const pipelinesRes = await fetch(`${API_BASE}/pipelines/`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+      });
+
+      if (pipelinesRes.ok) {
+        const pipelinesData = await pipelinesRes.json();
+        setPipelines(Array.isArray(pipelinesData) ? pipelinesData : []);
+      }
+
+      setIsEditingName(false);
+      
+      // Return pipeline ID for parent component (convert to string if needed)
+      const pipelineId = typeof savedPipeline.id === 'string' ? savedPipeline.id : String(savedPipeline.id);
+      return pipelineId;
+    } catch (error: any) {
+      console.error("Error saving pipeline:", error);
+      alert(error?.message || "Failed to save pipeline. Please try again.");
+      throw error;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   if (!mounted) return null;
 
   return (
@@ -282,11 +671,80 @@ export default function LeftPanel({
 
       {/* header */}
       <div className="sticky top-0 bg-gradient-to-r from-white/85 via-white/75 to-white/65 backdrop-blur border-b border-slate-100">
-        <div className="flex items-center justify-between px-4 py-3">
-          <h2 className="text-[15px] font-semibold text-slate-900 truncate">
+        <div className="flex items-center justify-between px-4 py-3 gap-2">
+          {isEditingName ? (
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <input
+                ref={projectNameInputRef}
+                type="text"
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleSavePipeline();
+                  } else if (e.key === "Escape") {
+                    setProjectName(initialProjectName);
+                    setIsEditingName(false);
+                  }
+                }}
+                className="flex-1 px-2 py-1 text-[15px] font-semibold text-slate-900 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 min-w-0"
+                placeholder="Enter pipeline name..."
+              />
+              <button
+                onClick={handleSavePipeline}
+                disabled={isSaving || !projectName.trim()}
+                className="p-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Save pipeline"
+              >
+                {isSaving ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  setProjectName(initialProjectName);
+                  setIsEditingName(false);
+                }}
+                className="p-1.5 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 transition-colors"
+                title="Cancel"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <>
+              <h2 
+                className="text-[15px] font-semibold text-slate-900 truncate flex-1 cursor-pointer hover:text-teal-700 transition-colors"
+                onClick={() => setIsEditingName(true)}
+                title="Click to edit pipeline name"
+              >
             {projectName}
           </h2>
-          <div className="w-6" />
+              <button
+                onClick={() => setIsEditingName(true)}
+                className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-teal-700 transition-colors"
+                title="Edit pipeline name"
+              >
+                <Edit2 className="w-4 h-4" />
+              </button>
+              {onSavePipeline && (
+                <button
+                  onClick={handleSavePipeline}
+                  disabled={isSaving}
+                  className="p-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  title="Save pipeline"
+                >
+                  {isSaving ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                </button>
+              )}
+            </>
+          )}
         </div>
 
         {/* search */}
@@ -352,23 +810,39 @@ export default function LeftPanel({
         <Section
           icon={<Workflow className="w-4 h-4 text-slate-600" />}
           title="Pipelines"
-          count={pipelines.length}
+          count={pipelines.length > 0 ? pipelines.length : undefined}
           open={openPipelines}
           onToggle={() => setOpenPipelines((v) => !v)}
         >
           <List>
-            {(openPipelines ? filteredPipelines : []).map(
-              (item, i) => (
+            {pipelinesLoading && (
+              <div className="px-2.5 py-2">
+                <div className="h-4 w-full bg-slate-200/60 rounded-xl animate-pulse" />
+              </div>
+            )}
+            {!pipelinesLoading && pipelinesError && (
+              <EmptyRow label={`Error: ${pipelinesError}`} />
+            )}
+            {!pipelinesLoading && !pipelinesError && (openPipelines ? filteredPipelines : []).map(
+              (pipeline) => (
                 <Row
-                  key={i}
-                  label={item}
+                  key={pipeline.id}
+                  label={pipeline.name}
                   leftAdornment={
-                    <Dot className="bg-blue-500" />
+                    <Dot className={
+                      pipeline.status === "deployed" ? "bg-green-500" :
+                      pipeline.status === "deploying" ? "bg-yellow-500" :
+                      pipeline.status === "failed" ? "bg-red-500" :
+                      "bg-blue-500"
+                    } />
                   }
+                  onClick={() => onPipelineSelect?.(pipeline)}
                 />
               )
             )}
             {openPipelines &&
+              !pipelinesLoading &&
+              !pipelinesError &&
               filteredPipelines.length === 0 && (
                 <EmptyRow label="No matching pipelines" />
               )}
@@ -559,12 +1033,17 @@ function List({ children }: { children: React.ReactNode }) {
 function Row({
   leftAdornment,
   label,
+  onClick,
 }: {
   leftAdornment?: React.ReactNode;
   label: string;
+  onClick?: () => void;
 }) {
   return (
-    <div className="group relative flex items-center gap-3 px-2.5 py-2 rounded-2xl cursor-pointer transition">
+    <div 
+      className="group relative flex items-center gap-3 px-2.5 py-2 rounded-2xl cursor-pointer transition"
+      onClick={onClick}
+    >
       <div className="absolute inset-0 rounded-2xl ring-1 ring-transparent group-hover:ring-teal-200 bg-transparent group-hover:bg-teal-50/70 transition" />
       <div className="relative">{leftAdornment}</div>
       <span className="relative z-[1] flex-1 truncate text-[13.5px] text-slate-700 group-hover:text-slate-900">

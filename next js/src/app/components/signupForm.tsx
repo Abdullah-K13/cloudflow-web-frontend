@@ -249,9 +249,9 @@ const SignUp = () => {
                 <Button variant="outline" className="w-full" type="button">
                   Continue with Google
                 </Button>
-                <Button variant="outline" className="w-full" type="button">
+                {/* <Button variant="outline" className="w-full" type="button">
                   Continue with Microsoft
-                </Button>
+                </Button> */}
               </div>
 
               {/* Sign In Link */}

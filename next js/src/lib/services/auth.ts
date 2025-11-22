@@ -223,6 +223,132 @@ export async function getCurrentUser() {
 }
 
 /**
+ * GOOGLE OAUTH LOGIN
+ * POST /auth/google
+ * body: { id_token: string }
+ * response: { access_token: string }
+ * - stores access_token in cookie and localStorage
+ */
+export async function loginWithGoogle(idToken: string): Promise<string> {
+  try {
+    const useProxy = typeof window !== "undefined";
+    
+    let res;
+    if (useProxy) {
+      // Use Next.js API route as proxy (bypasses CORS)
+      res = await fetch("/api/auth/google", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ id_token: idToken }),
+      });
+      
+      if (!res.ok) {
+        let errorData;
+        try {
+          errorData = await res.json();
+        } catch (jsonError) {
+          // If response is not JSON, try to get text
+          const text = await res.text().catch(() => "Unknown error");
+          errorData = { 
+            detail: `Backend error: ${res.status} ${res.statusText}`,
+            message: text 
+          };
+        }
+        
+        console.error("Backend error response:", {
+          status: res.status,
+          statusText: res.statusText,
+          data: errorData
+        });
+        
+        throw {
+          response: {
+            status: res.status,
+            data: errorData,
+          },
+        };
+      }
+      
+      res = { data: await res.json(), status: res.status };
+    } else {
+      // Server-side: use direct API call
+      res = await apiClient.post("/auth/google", { id_token: idToken });
+    }
+
+    // Check if response exists and has data
+    if (!res || !res.data) {
+      throw new Error("Invalid response from server: No data received");
+    }
+
+    const data = res.data;
+    
+    // Check if access_token exists in response
+    if (!data?.access_token) {
+      console.error("Google login response missing access_token:", data);
+      throw new Error("Invalid response from server: Missing access_token in response");
+    }
+
+    // Validate token is a non-empty string
+    if (typeof data.access_token !== "string" || data.access_token.trim().length === 0) {
+      throw new Error("Invalid response from server: access_token is empty or invalid");
+    }
+
+    console.log("Google login successful, token received");
+
+    // Set cookie in browser
+    if (typeof window !== "undefined") {
+      try {
+        document.cookie = `access_token=${data.access_token}; path=/; samesite=lax`;
+        localStorage.setItem("access_token", data.access_token);
+        
+        // Verify token was stored
+        const storedToken = localStorage.getItem("access_token");
+        if (!storedToken || storedToken !== data.access_token) {
+          console.warn("Warning: Token may not have been stored correctly");
+        }
+      } catch (storageError) {
+        console.error("Error storing token:", storageError);
+        throw new Error("Failed to store authentication token. Please check your browser settings.");
+      }
+    }
+
+    return data.access_token;
+  } catch (error: any) {
+    // Handle network errors
+    if (!error.response) {
+      if (error.message?.includes("CORS") || error.code === "ERR_NETWORK") {
+        throw new Error("Network error: Unable to connect to the server. Please check your connection.");
+      }
+      throw new Error(error.message || "Google login failed. Please try again.");
+    }
+
+    // Handle API errors
+    if (error.response) {
+      const status = error.response.status;
+      const detail = error.response.data?.detail;
+      const message = error.response.data?.message;
+
+      if (status === 401) {
+        const errorDetail = detail || message || "Google authentication failed";
+        throw new Error(errorDetail);
+      } else if (status >= 500) {
+        // Show more details for server errors to help debugging
+        const errorDetail = detail || message || "Server error: Please try again later or contact support.";
+        console.error("Backend error details:", { status, detail, message, data: error.response.data });
+        throw new Error(errorDetail);
+      }
+
+      const errorMsg = message || detail || `Google login failed (${status})`;
+      throw new Error(errorMsg);
+    }
+
+    throw new Error(error.message || "Google login failed. Please try again.");
+  }
+}
+
+/**
  * Logout helper - clears token from cookie and localStorage
  */
 export function logout() {
