@@ -34,7 +34,11 @@ interface LeftPanelProps {
   canvasRef?: React.RefObject<{ getPlan: () => any; buildDeploymentPayload: (plan: any) => any; getProvider: () => "aws" | "gcp" | "azure"; getAllServices: () => any[] } | null>;
 }
 
-const API_URL = "http://localhost:8000/estimate-cost";
+const API_BASE =
+  typeof window === "undefined"
+    ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+    : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+const API_URL = `${API_BASE}/cost-optimization/analyze`;
 const API_KEY_COOKIE = "api_key"; // change if your cookie name is different
 const SUPPORTED: ServiceKey[] = ["s3", "lambda", "sqs", "sns", "dynamodb"];
 
@@ -319,14 +323,14 @@ export default function LeftPanel({
     if (present.length === 0) {
       setCostItems([]);
       setCostLoading(false);
-      return () => {};
+      return () => { };
     }
 
     // all services already in cache → recompute totals, no API calls
     if (missing.length === 0) {
       setCostItems(buildItems(unitCostCache));
       setCostLoading(false);
-      return () => {};
+      return () => { };
     }
 
     // fetch only the missing services
@@ -339,10 +343,34 @@ export default function LeftPanel({
 
         const results = await Promise.allSettled(
           missing.map(async (service) => {
+            // Construct a dummy IR for this service type to get a unit cost
+            const kind = service === "s3" ? "aws.s3" :
+              service === "lambda" ? "aws.lambda" :
+                service === "sqs" ? "aws.sqs" :
+                  service === "sns" ? "aws.sns" :
+                    service === "dynamodb" ? "aws.dynamodb" : "aws.other";
+
+            const ir = {
+              project: "cost-estimator",
+              env: "dev",
+              region: "us-east-1",
+              nodes: [{
+                id: "unit-cost-node",
+                kind,
+                props: {
+                  // Default props for estimation
+                  memory: 128,
+                  storage_gb: 1,
+                  requests: 100000,
+                  invocations: 100000
+                }
+              }]
+            };
+
             const res = await fetch(API_URL, {
               method: "POST",
               headers,
-              body: JSON.stringify({ service, region: "ap-southeast-2" }),
+              body: JSON.stringify({ ir, cloud: "aws" }),
               signal: controller.signal,
               credentials: "include",
             });
@@ -353,7 +381,7 @@ export default function LeftPanel({
             const json = await res.json();
             return [
               service,
-              Number(json?.estimated_monthly_usd ?? 0),
+              Number(json?.totalMonthlyCost ?? 0),
             ] as const;
           })
         );
@@ -885,9 +913,8 @@ export default function LeftPanel({
                   {costItems.map((it) => (
                     <CostLine
                       key={it.service}
-                      label={`${it.service.toUpperCase()} ${
-                        it.count > 1 ? `× ${it.count}` : ""
-                      }`.trim()}
+                      label={`${it.service.toUpperCase()} ${it.count > 1 ? `× ${it.count}` : ""
+                        }`.trim()}
                       value={
                         it.ok ? currency(it.total) : "—"
                       }
@@ -1001,9 +1028,8 @@ function Section({
         aria-expanded={open}
       >
         <span
-          className={`mr-2 transition-transform ${
-            open ? "rotate-0" : "-rotate-90"
-          }`}
+          className={`mr-2 transition-transform ${open ? "rotate-0" : "-rotate-90"
+            }`}
         >
           <ChevronDown className="w-4 h-4 text-slate-500" />
         </span>
@@ -1016,9 +1042,8 @@ function Section({
         )}
       </button>
       <div
-        className={`px-2 pb-2 overflow-hidden transition-all ${
-          open ? "max-h-[640px]" : "max-h-0"
-        }`}
+        className={`px-2 pb-2 overflow-hidden transition-all ${open ? "max-h-[640px]" : "max-h-0"
+          }`}
       >
         {children}
       </div>

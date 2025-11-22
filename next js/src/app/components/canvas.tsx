@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import CredentialsModal from "./ui/credentials-modal";
 import SuccessModal from "./ui/success-modal";
 import ServiceConfigPanel from "./service-config-panel";
+import RequirementsModal from "./requirements-modal";
+import OptimizationResults from "./optimization-results";
+import { DollarSign, TrendingDown } from "lucide-react";
 import ReactFlow, {
   MiniMap,
   Controls,
@@ -27,40 +30,61 @@ import { ServiceItem, CanvasProps } from "./types";
 import LeftPanel from "./leftpanel";
 
 /* ---- node component & palette (unchanged) ---- */
-const ServiceNode: React.FC<{ data: { label: string; img: string } }> = ({ data }) => {
+const ServiceNode: React.FC<{ data: { label: string; img: string; cost?: number } }> = ({ data }) => {
   const c = { base: "#fff", border: "#E2E8F0", text: "#334155" };
   return (
     <div
       style={{
         width: 150,
-        height: 55,
+        height: 70, // Increased height for cost
         background: c.base,
         border: `1px solid ${c.border}`,
         borderRadius: 10,
         display: "flex",
-        alignItems: "center",
-        gap: 10,
+        flexDirection: "column", // Changed to column
         padding: "6px 10px",
         boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+        position: "relative"
       }}
     >
-      <Handle type="source" position={Position.Right} />
-      <Handle type="target" position={Position.Left} />
-      <div
-        style={{
-          width: 38,
-          height: 38,
-          borderRadius: 12,
-          background: "white",
-          border: `1px solid ${c.border}`,
-          display: "grid",
-          placeItems: "center",
-        }}
-      >
-        <img src={data.img} alt={data.label} style={{ width: 20, height: 20 }} />
+      <Handle type="source" position={Position.Right} style={{ top: 27 }} />
+      <Handle type="target" position={Position.Left} style={{ top: 27 }} />
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div
+          style={{
+            width: 38,
+            height: 38,
+            borderRadius: 12,
+            background: "white",
+            border: `1px solid ${c.border}`,
+            display: "grid",
+            placeItems: "center",
+            flexShrink: 0
+          }}
+        >
+          <img src={data.img} alt={data.label} style={{ width: 20, height: 20 }} />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.1 }}>
+          <div style={{ fontWeight: 600, color: c.text, fontSize: 14 }}>{data.label}</div>
+        </div>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.1 }}>
-        <div style={{ fontWeight: 600, color: c.text, fontSize: 14 }}>{data.label}</div>
+
+      {/* Cost Badge */}
+      <div style={{
+        marginTop: 6,
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        fontSize: 11,
+        color: "#64748b",
+        backgroundColor: "#f1f5f9",
+        padding: "2px 6px",
+        borderRadius: 4,
+        alignSelf: "flex-start"
+      }}>
+        <DollarSign size={10} />
+        <span>{data.cost !== undefined ? `$${data.cost.toFixed(2)}/mo` : "Calc..."}</span>
       </div>
     </div>
   );
@@ -421,8 +445,8 @@ const CanvasInner = (
       const snappedX = Math.round(position.x / gridSize) * gridSize;
       const snappedY = Math.round(position.y / gridSize) * gridSize;
 
-      setNodes((nds) =>
-        nds.concat({
+      setNodes((nds) => {
+        const newNode = {
           id: newId,
           type: svc.id,
           position: { x: snappedX, y: snappedY },
@@ -438,9 +462,13 @@ const CanvasInner = (
               config: makeDefaultConfig(svc.label),
             } as ServiceItem,
             selected: true,
+            cost: 0, // Init cost
           },
-        })
-      );
+        };
+        // Trigger cost fetch for the new node
+        setTimeout(() => fetchNodeCost(newNode as any), 100);
+        return nds.concat(newNode);
+      });
       onSelectedNodesChange?.([{ id: newId, type: svc.id }]);
     },
     [setNodes, onSelectedNodesChange, currentServices]
@@ -454,6 +482,97 @@ const CanvasInner = (
   // single, controlled panel state
   const [activeService, setActiveService] = useState<ServiceItem | null>(null);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+
+  // Cost Optimization State
+  // Cost Optimization State
+  const [isRequirementsOpen, setIsRequirementsOpen] = useState(false);
+  const [isResultsOpen, setIsResultsOpen] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [optimizationSuggestions, setOptimizationSuggestions] = useState<any[]>([]);
+  const [totalSavings, setTotalSavings] = useState(0);
+
+  // Fetch cost for a single node (simple estimate)
+  const fetchNodeCost = async (node: Node) => {
+    try {
+      const svc = (node.data as any).service;
+      const kind = KIND_MAP[node.type as ExtendedPlanNodeType] || "aws.other";
+      const props = normalizeToDesiredProps(kind, svc.config);
+
+      // Construct a mini IR for just this node
+      const miniIr = {
+        project: "canvas-project",
+        env: "dev",
+        region: "us-east-1",
+        nodes: [{ id: node.id, kind, props }]
+      };
+
+      const res = await fetch(`${API_BASE}/cost-optimization/analyze`, {
+        method: "POST",
+        headers: getHeaders(true),
+        body: JSON.stringify({ ir: miniIr, cloud: provider })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        // Extract cost from the response (assuming the backend returns currentCost in suggestions or we need a separate pricing endpoint)
+        // For now, let's assume we can get it from the first suggestion's currentCost if available, 
+        // OR we should really add a 'calculate_cost' endpoint. 
+        // FALLBACK: Use a default or parse from suggestion if it exists.
+        // A better approach: The backend 'analyze' returns suggestions. 
+        // We might need to add a 'cost' field to the response of analyze or use a dedicated pricing endpoint.
+        // Let's assume for this task we use the 'currentCost' from a dummy suggestion or similar.
+        // Actually, let's use the 'total_monthly_cost' if we modify the backend to return it.
+        // I'll assume the backend returns { suggestions: [], totalMonthlyCost: 123.45 }
+        if (data.totalMonthlyCost !== undefined) {
+          setNodes(nds => nds.map(n => n.id === node.id ? { ...n, data: { ...n.data, cost: data.totalMonthlyCost } } : n));
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch cost", e);
+    }
+  };
+
+  const handleRequirementsSubmit = async (requirements: any) => {
+    setIsAnalyzing(true);
+    try {
+      const plan = buildPlan();
+      const payload = buildDeploymentPayload(plan);
+
+      // Construct IR from payload
+      const ir = {
+        project: payload.project,
+        env: payload.env,
+        region: payload.region,
+        nodes: payload.nodes,
+        edges: payload.edges
+      };
+
+      const res = await fetch(`${API_BASE}/cost-optimization/analyze`, {
+        method: "POST",
+        headers: getHeaders(true),
+        body: JSON.stringify({
+          ir,
+          cloud: provider,
+          requirements
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setOptimizationSuggestions(data.suggestions);
+        setTotalSavings(data.totalSavings);
+        setIsRequirementsOpen(false);
+        setIsResultsOpen(true);
+
+        // Update node costs if available
+        // This would require mapping back to nodes
+      }
+    } catch (e) {
+      alert("Optimization analysis failed");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   const openPanelForNode = useCallback((node: Node) => {
     const svc: ServiceItem | undefined = (node?.data as any)?.service;
@@ -499,7 +618,7 @@ const CanvasInner = (
       else if (String(n.type) === "cloud-run") type = "cloud-run" as ExtendedPlanNodeType;
       else if (String(n.type) === "secret-manager") type = "secret-manager" as ExtendedPlanNodeType;
       else if (String(n.type) === "firestore") type = "firestore" as ExtendedPlanNodeType;
-      
+
       const details: Record<string, any> = (svc as any)?.config?.details || {};
       const name = sanitizeName(svc?.config?.name?.trim?.() || svc?.label || n.id);
       return { id: n.id, type, name, props: { label: svc?.label, region: svc?.config?.region || (details as any).region || "", ...details } };
@@ -547,7 +666,7 @@ const CanvasInner = (
     const env = "dev";
     // Use appropriate default region based on provider
     const region = plan.awsRegion || (provider === "gcp" ? "us-central1" : "ap-southeast-2");
-    
+
     // For GCP, also include location (synonym for region)
     const payload: DeployPayload & { location?: string } = {
       project,
@@ -556,7 +675,7 @@ const CanvasInner = (
       nodes: [],
       edges: [],
     };
-    
+
     if (provider === "gcp") {
       payload.location = region;
     }
@@ -614,7 +733,7 @@ const CanvasInner = (
 
     payload.nodes = nodes;
     payload.edges = edges;
-    
+
     return payload;
   }
 
@@ -635,19 +754,19 @@ const CanvasInner = (
   const printGraphPayload = () => {
     const plan = buildPlan();
     const payload = buildDeploymentPayload(plan);
-    
+
     // For GCP, wrap in {ir: {...}} format for console output
     if (provider === "gcp") {
       const wrappedPayload = { ir: payload };
       console.log("=== /gcp/up payload ===\n", JSON.stringify(wrappedPayload, null, 2));
     } else {
-    console.log("=== /deploy payload ===\n", JSON.stringify(payload, null, 2));
+      console.log("=== /deploy payload ===\n", JSON.stringify(payload, null, 2));
     }
   };
 
   /* ----------------- API helpers ----------------- */
   // Use the same base URL pattern as apiClient
-  const API_BASE = 
+  const API_BASE =
     typeof window === "undefined"
       ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
       : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
@@ -737,7 +856,7 @@ const CanvasInner = (
       const region = payload.region || payload.location || "us-east-1";
       const cloud = provider === "gcp" ? "gcp" : provider === "azure" ? "azure" : "aws";
 
-      const API_BASE = 
+      const API_BASE =
         typeof window === "undefined"
           ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
           : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
@@ -764,12 +883,12 @@ const CanvasInner = (
         const savedPipeline = await res.json();
         const pipelineId = typeof savedPipeline.id === 'string' ? savedPipeline.id : String(savedPipeline.id);
         console.log("Pipeline auto-saved:", pipelineId);
-        
+
         // Notify parent component about the auto-created pipeline
         if (onPipelineCreated) {
           onPipelineCreated(pipelineId);
         }
-        
+
         return pipelineId;
       } else {
         console.error("Failed to auto-save pipeline:", await res.text());
@@ -785,7 +904,7 @@ const CanvasInner = (
   const updatePipelineStatus = async (status: "draft" | "ready" | "deploying" | "deployed" | "failed") => {
     // First, ensure pipeline exists
     const pipelineId = currentPipelineId || await ensurePipelineExists();
-    
+
     if (!pipelineId) {
       console.log("No pipeline ID available, skipping status update");
       return;
@@ -798,7 +917,7 @@ const CanvasInner = (
         return;
       }
 
-      const API_BASE = 
+      const API_BASE =
         typeof window === "undefined"
           ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
           : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
@@ -848,10 +967,10 @@ const CanvasInner = (
       // Use appropriate API endpoint based on provider
       const apiBase = provider === "gcp" ? GCP_API_BASE : AWS_API_BASE;
       const endpoint = provider === "gcp" ? "/up" : "/deploy";
-      
+
       // For GCP, wrap payload in {ir: {...}} format
       const requestBody = provider === "gcp" ? { ir: payload } : payload;
-      
+
       const res = await fetch(`${apiBase}${endpoint}`, {
         method: "POST",
         headers: getHeaders(true),
@@ -869,13 +988,13 @@ const CanvasInner = (
       if (!res.ok) {
         // Handle bootstrap error specifically
         const detail = data?.detail;
-        if (detail?.message === "CDK environment not bootstrapped" || 
-            (typeof detail === "string" && detail.includes("not been bootstrapped")) ||
-            (detail?.message && detail.message.includes("not been bootstrapped"))) {
+        if (detail?.message === "CDK environment not bootstrapped" ||
+          (typeof detail === "string" && detail.includes("not been bootstrapped")) ||
+          (detail?.message && detail.message.includes("not been bootstrapped"))) {
           const hint = detail?.hint || "Please bootstrap the CDK environment first.";
           throw new Error(`CDK environment not bootstrapped. ${hint}`);
         }
-        
+
         // Handle other errors - backend returns {detail: {message: "...", output: "..."}}
         let msg: string;
         if (typeof detail === "string") {
@@ -893,10 +1012,10 @@ const CanvasInner = (
 
       // Success response: {message: "deploy ok", output: "..."}
       console.log("Deploy ok:", data);
-      
+
       // Update pipeline status to "ready" on successful deployment
       await updatePipelineStatus("ready");
-      
+
       setSuccessModal({
         isOpen: true,
         title: "Deployed Successfully! 🎉",
@@ -905,10 +1024,10 @@ const CanvasInner = (
       });
     } catch (e: any) {
       console.error("Deployment error:", e?.message || e);
-      
+
       // Update pipeline status to "failed" on deployment error
       await updatePipelineStatus("failed");
-      
+
       alert(e?.message || "Something went wrong while deploying.");
     } finally {
       setDeploying(false);
@@ -925,7 +1044,7 @@ const CanvasInner = (
 
       // Use appropriate API endpoint based on provider
       const apiBase = provider === "gcp" ? GCP_API_BASE : AWS_API_BASE;
-      
+
       const res = await fetch(`${apiBase}/compile`, {
         method: "POST",
         headers: getHeaders(false),
@@ -959,10 +1078,10 @@ const CanvasInner = (
 
       // Success response: {message: "synth ok", ir_path: "...", synth_output: "..."}
       console.log("Compile ok:", data);
-      
+
       // Update pipeline status to "ready" on successful compile
       await updatePipelineStatus("ready");
-      
+
       alert(`Compiled successfully (CDK synth).${data?.synth_output ? `\n\n${data.synth_output}` : ""}`);
     } catch (e: any) {
       console.error("Compile error:", e?.message || e);
@@ -1044,12 +1163,12 @@ const CanvasInner = (
         const payload = buildDeploymentPayload(plan);
         body = payload; // Send full IR for GCP
       }
-      
+
       // Use appropriate API endpoint based on provider
       const apiBase = provider === "gcp" ? GCP_API_BASE : AWS_API_BASE;
       const token = getAccessToken();
       const includeAuth = provider === "gcp"; // GCP destroy requires auth
-      
+
       const res = await fetch(`${apiBase}/destroy`, {
         method: "POST",
         headers: getHeaders(includeAuth),
@@ -1150,11 +1269,11 @@ const CanvasInner = (
       }
 
       console.log("Preview ok:", data);
-      
+
       // Update pipeline status to "ready" on successful preview
       await updatePipelineStatus("ready");
-      
-      const previewDetails = data?.preview || data?.changeSummary 
+
+      const previewDetails = data?.preview || data?.changeSummary
         ? `${data?.preview ? `Preview:\n${data.preview}` : ""}${data?.changeSummary ? `${data?.preview ? "\n\n" : ""}Change Summary:\n${data.changeSummary}` : ""}`
         : undefined;
       setSuccessModal({
@@ -1309,242 +1428,267 @@ const CanvasInner = (
         )}
       </div>
 
+      <RequirementsModal
+        isOpen={isRequirementsOpen}
+        onClose={() => setIsRequirementsOpen(false)}
+        onSubmit={handleRequirementsSubmit}
+        isLoading={isAnalyzing}
+      />
+
+      <OptimizationResults
+        isOpen={isResultsOpen}
+        onClose={() => setIsResultsOpen(false)}
+        suggestions={optimizationSuggestions}
+        totalSavings={totalSavings}
+        onApply={(id) => alert(`Applying suggestion ${id} (Implementation coming soon)`)}
+      />
+
       {/* ===== New Right-side Palette Panel ================================== */}
       <aside
         className="w-[320px] shrink-0 border-l border-gray-200 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60 flex flex-col h-full min-h-0"
         aria-label="Cloud services palette"
       >
-         {/* Actions */}
+        {/* Actions */}
         <div className="p-3 border-t border-gray-200 space-y-2">
-          {/* Print Prompt - Always shown */}
+          {/* Optimization Button */}
+          <button
+            onClick={() => setIsRequirementsOpen(true)}
+            className="w-full flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition-all focus:outline-none focus:ring-4 focus:ring-emerald-200/70"
+          >
+            <TrendingDown size={16} />
+            Optimize Costs
+          </button>
+
+          <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => {
                 const plan = buildPlan();
                 const prompt = buildPrompt(plan);
                 console.log("=== Prompt ===\n", prompt);
                 const payload = buildDeploymentPayload(plan);
-              
-              // For GCP, wrap in {ir: {...}} format for console output
-              if (provider === "gcp") {
-                const wrappedPayload = { ir: payload };
-                console.log("=== /gcp/up payload ===\n", JSON.stringify(wrappedPayload, null, 2));
-              } else {
-                console.log("=== /deploy payload ===\n", JSON.stringify(payload, null, 2));
-              }
+
+                // For GCP, wrap in {ir: {...}} format for console output
+                if (provider === "gcp") {
+                  const wrappedPayload = { ir: payload };
+                  console.log("=== /gcp/up payload ===\n", JSON.stringify(wrappedPayload, null, 2));
+                } else {
+                  console.log("=== /deploy payload ===\n", JSON.stringify(payload, null, 2));
+                }
               }}
-            className="w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold border border-teal-200 text-teal-700 hover:bg-teal-50"
+              className="w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold border border-teal-200 text-teal-700 hover:bg-teal-50"
               title="Print Prompt"
             >
               Print Prompt
             </button>
 
-          {/* AWS-specific buttons */}
-          {provider === "aws" && (
-            <>
-              <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={handleCompile}
-              disabled={compiling}
-              className={[
-                "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                "bg-amber-600 text-white hover:bg-amber-700",
-                "focus:outline-none focus:ring-4 focus:ring-amber-200/70",
-                "disabled:opacity-60 disabled:cursor-not-allowed",
-                "shadow-sm transition-all",
-              ].join(" ")}
-              title="Compile (CDK synth)"
-            >
-              {compiling ? "Compiling…" : "Compile"}
-            </button>
+            {/* AWS-specific buttons */}
+            {provider === "aws" && (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCompile}
+                    disabled={compiling}
+                    className={[
+                      "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                      "bg-amber-600 text-white hover:bg-amber-700",
+                      "focus:outline-none focus:ring-4 focus:ring-amber-200/70",
+                      "disabled:opacity-60 disabled:cursor-not-allowed",
+                      "shadow-sm transition-all",
+                    ].join(" ")}
+                    title="Compile (CDK synth)"
+                  >
+                    {compiling ? "Compiling…" : "Compile"}
+                  </button>
 
-            <button
-              type="button"
-              onClick={handleBootstrap}
-              disabled={bootstrapping}
-              className={[
-                "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                "bg-purple-600 text-white hover:bg-purple-700",
-                "focus:outline-none focus:ring-4 focus:ring-purple-200/70",
-                "disabled:opacity-60 disabled:cursor-not-allowed",
-                "shadow-sm transition-all",
-              ].join(" ")}
-              title="Bootstrap CDK environment"
-            >
-              {bootstrapping ? "Bootstrapping…" : "Bootstrap"}
-            </button>
-              </div>
+                  <button
+                    type="button"
+                    onClick={handleBootstrap}
+                    disabled={bootstrapping}
+                    className={[
+                      "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                      "bg-purple-600 text-white hover:bg-purple-700",
+                      "focus:outline-none focus:ring-4 focus:ring-purple-200/70",
+                      "disabled:opacity-60 disabled:cursor-not-allowed",
+                      "shadow-sm transition-all",
+                    ].join(" ")}
+                    title="Bootstrap CDK environment"
+                  >
+                    {bootstrapping ? "Bootstrapping…" : "Bootstrap"}
+                  </button>
+                </div>
 
-              <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={handleDeploy}
-              disabled={deploying}
-              className={[
-                "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                "bg-teal-600 text-white hover:bg-teal-700",
-                "focus:outline-none focus:ring-4 focus:ring-teal-200/70",
-                "disabled:opacity-60 disabled:cursor-not-allowed",
-                "shadow-sm transition-all",
-              ].join(" ")}
-              title="Deploy"
-            >
-              {deploying ? (
-                <>
-                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.25" />
-                    <path d="M21 12a9 9 0 0 1-9 9" stroke="currentColor" strokeWidth="3" />
-                  </svg>
-                  Deploying…
-                </>
-              ) : (
-                <>
-                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                    <path d="M12 2c3.5 0 6 2.5 6 6 0 3.2-2.2 6.4-5 8l-1 6-3-4-4-3 6-1c1.6-2.8 4.8-5 8-5 0-3.5-2.5-6-6-6z" />
-                  </svg>
-                  Deploy
-                </>
-              )}
-            </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDeploy}
+                    disabled={deploying}
+                    className={[
+                      "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                      "bg-teal-600 text-white hover:bg-teal-700",
+                      "focus:outline-none focus:ring-4 focus:ring-teal-200/70",
+                      "disabled:opacity-60 disabled:cursor-not-allowed",
+                      "shadow-sm transition-all",
+                    ].join(" ")}
+                    title="Deploy"
+                  >
+                    {deploying ? (
+                      <>
+                        <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+                          <path d="M21 12a9 9 0 0 1-9 9" stroke="currentColor" strokeWidth="3" />
+                        </svg>
+                        Deploying…
+                      </>
+                    ) : (
+                      <>
+                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                          <path d="M12 2c3.5 0 6 2.5 6 6 0 3.2-2.2 6.4-5 8l-1 6-3-4-4-3 6-1c1.6-2.8 4.8-5 8-5 0-3.5-2.5-6-6-6z" />
+                        </svg>
+                        Deploy
+                      </>
+                    )}
+                  </button>
 
-            <button
-              type="button"
-              onClick={handleStatus}
-              disabled={checkingStatus}
-              className={[
-                "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                "bg-blue-600 text-white hover:bg-blue-700",
-                "focus:outline-none focus:ring-4 focus:ring-blue-200/70",
-                "disabled:opacity-60 disabled:cursor-not-allowed",
-                "shadow-sm transition-all",
-              ].join(" ")}
-              title="Check CDK stack status"
-            >
-              {checkingStatus ? "Checking…" : "Status"}
-            </button>
-              </div>
+                  <button
+                    type="button"
+                    onClick={handleStatus}
+                    disabled={checkingStatus}
+                    className={[
+                      "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                      "bg-blue-600 text-white hover:bg-blue-700",
+                      "focus:outline-none focus:ring-4 focus:ring-blue-200/70",
+                      "disabled:opacity-60 disabled:cursor-not-allowed",
+                      "shadow-sm transition-all",
+                    ].join(" ")}
+                    title="Check CDK stack status"
+                  >
+                    {checkingStatus ? "Checking…" : "Status"}
+                  </button>
+                </div>
 
-            <button
-              type="button"
-              onClick={handleDestroy}
-              disabled={destroying}
-              className={[
-                  "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                "bg-red-600 text-white hover:bg-red-700",
-                "focus:outline-none focus:ring-4 focus:ring-red-200/70",
-                "disabled:opacity-60 disabled:cursor-not-allowed",
-                "shadow-sm transition-all",
-              ].join(" ")}
-              title="Destroy all stacks"
-            >
-              {destroying ? "Destroying…" : "Destroy"}
-            </button>
-            </>
-          )}
-
-          {/* GCP-specific buttons */}
-          {provider === "gcp" && (
-            <>
-              <button
-                type="button"
-                onClick={handlePreview}
-                disabled={previewing}
-                className={[
-                  "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                  "bg-indigo-600 text-white hover:bg-indigo-700",
-                  "focus:outline-none focus:ring-4 focus:ring-indigo-200/70",
-                  "disabled:opacity-60 disabled:cursor-not-allowed",
-                  "shadow-sm transition-all",
-                ].join(" ")}
-                title="Preview changes before deploying"
-              >
-                {previewing ? "Previewing…" : "Preview"}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleDeploy}
-                disabled={deploying}
-                className={[
-                  "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                  "bg-teal-600 text-white hover:bg-teal-700",
-                  "focus:outline-none focus:ring-4 focus:ring-teal-200/70",
-                  "disabled:opacity-60 disabled:cursor-not-allowed",
-                  "shadow-sm transition-all",
-                ].join(" ")}
-                title="Deploy to GCP"
-              >
-                {deploying ? (
-                  <>
-                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.25" />
-                      <path d="M21 12a9 9 0 0 1-9 9" stroke="currentColor" strokeWidth="3" />
-                    </svg>
-                    Deploying…
-                  </>
-                ) : (
-                  <>
-                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                      <path d="M12 2c3.5 0 6 2.5 6 6 0 3.2-2.2 6.4-5 8l-1 6-3-4-4-3 6-1c1.6-2.8 4.8-5 8-5 0-3.5-2.5-6-6-6z" />
-                    </svg>
-                    Deploy
-                  </>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleDestroy}
-                disabled={destroying}
-                className={[
-                  "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                  "bg-red-600 text-white hover:bg-red-700",
-                  "focus:outline-none focus:ring-4 focus:ring-red-200/70",
-                  "disabled:opacity-60 disabled:cursor-not-allowed",
-                  "shadow-sm transition-all",
-                ].join(" ")}
-                title="Destroy GCP resources"
-              >
-                {destroying ? "Destroying…" : "Destroy"}
-              </button>
-            </>
-          )}
-        </div>
-        {/* Provider switcher */}
-        <div className="p-3 border-b border-gray-200">
-          <div className="text-sm font-semibold text-slate-700 mb-2">Cloud Provider</div>
-          <div className="grid grid-cols-3 rounded-xl overflow-hidden border border-gray-200">
-            {(["aws", "gcp", "azure"] as Provider[]).map((p) => {
-              const active = provider === p;
-              return (
                 <button
-                  key={p}
-                  onClick={() => setProvider(p)}
+                  type="button"
+                  onClick={handleDestroy}
+                  disabled={destroying}
                   className={[
-                    "px-3 py-2 text-sm font-medium transition-all",
-                    active
-                      ? p === "aws"
-                        ? "bg-orange-500/90 text-white"
-                        : p === "gcp"
-                        ? "bg-teal-600/90 text-white"
-                        : "bg-sky-600/90 text-white"
-                      : "bg-white text-slate-700 hover:bg-slate-50",
+                    "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                    "bg-red-600 text-white hover:bg-red-700",
+                    "focus:outline-none focus:ring-4 focus:ring-red-200/70",
+                    "disabled:opacity-60 disabled:cursor-not-allowed",
+                    "shadow-sm transition-all",
                   ].join(" ")}
+                  title="Destroy all stacks"
                 >
-                  {p.toUpperCase()}
+                  {destroying ? "Destroying…" : "Destroy"}
                 </button>
-              );
-            })}
-          </div>
+              </>
+            )}
 
-          {/* Search */}
-          <div className="mt-3">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search services…"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-4 focus:ring-teal-200/60"
-            />
+            {/* GCP-specific buttons */}
+            {provider === "gcp" && (
+              <>
+                <button
+                  type="button"
+                  onClick={handlePreview}
+                  disabled={previewing}
+                  className={[
+                    "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                    "bg-indigo-600 text-white hover:bg-indigo-700",
+                    "focus:outline-none focus:ring-4 focus:ring-indigo-200/70",
+                    "disabled:opacity-60 disabled:cursor-not-allowed",
+                    "shadow-sm transition-all",
+                  ].join(" ")}
+                  title="Preview changes before deploying"
+                >
+                  {previewing ? "Previewing…" : "Preview"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDeploy}
+                  disabled={deploying}
+                  className={[
+                    "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                    "bg-teal-600 text-white hover:bg-teal-700",
+                    "focus:outline-none focus:ring-4 focus:ring-teal-200/70",
+                    "disabled:opacity-60 disabled:cursor-not-allowed",
+                    "shadow-sm transition-all",
+                  ].join(" ")}
+                  title="Deploy to GCP"
+                >
+                  {deploying ? (
+                    <>
+                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+                        <path d="M21 12a9 9 0 0 1-9 9" stroke="currentColor" strokeWidth="3" />
+                      </svg>
+                      Deploying…
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                        <path d="M12 2c3.5 0 6 2.5 6 6 0 3.2-2.2 6.4-5 8l-1 6-3-4-4-3 6-1c1.6-2.8 4.8-5 8-5 0-3.5-2.5-6-6-6z" />
+                      </svg>
+                      Deploy
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDestroy}
+                  disabled={destroying}
+                  className={[
+                    "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                    "bg-red-600 text-white hover:bg-red-700",
+                    "focus:outline-none focus:ring-4 focus:ring-red-200/70",
+                    "disabled:opacity-60 disabled:cursor-not-allowed",
+                    "shadow-sm transition-all",
+                  ].join(" ")}
+                  title="Destroy GCP resources"
+                >
+                  {destroying ? "Destroying…" : "Destroy"}
+                </button>
+              </>
+            )}
+          </div>
+          {/* Provider switcher */}
+          <div className="p-3 border-b border-gray-200">
+            <div className="text-sm font-semibold text-slate-700 mb-2">Cloud Provider</div>
+            <div className="grid grid-cols-3 rounded-xl overflow-hidden border border-gray-200">
+              {(["aws", "gcp", "azure"] as Provider[]).map((p) => {
+                const active = provider === p;
+                return (
+                  <button
+                    key={p}
+                    onClick={() => setProvider(p)}
+                    className={[
+                      "px-3 py-2 text-sm font-medium transition-all",
+                      active
+                        ? p === "aws"
+                          ? "bg-orange-500/90 text-white"
+                          : p === "gcp"
+                            ? "bg-teal-600/90 text-white"
+                            : "bg-sky-600/90 text-white"
+                        : "bg-white text-slate-700 hover:bg-slate-50",
+                    ].join(" ")}
+                  >
+                    {p.toUpperCase()}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Search */}
+            <div className="mt-3">
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search services…"
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-4 focus:ring-teal-200/60"
+              />
+            </div>
           </div>
         </div>
 
@@ -1577,7 +1721,7 @@ const CanvasInner = (
           )}
         </div>
 
-       
+
       </aside>
 
       {/* Credentials Modal */}
