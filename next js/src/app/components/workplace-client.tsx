@@ -40,7 +40,7 @@ export default function WorkplaceClient() {
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [selectedForCost, setSelectedForCost] = useState<{ id: string; type: string }[]>([]);
-  const [nodesOnCanvasForCost, setNodesOnCanvasForCost] = useState<{ id: string; type: string }[]>([]);
+  const [nodesOnCanvasForCost, setNodesOnCanvasForCost] = useState<{ id: string; type: string; data?: { cost?: number; label?: string } }[]>([]);
   const [projectName, setProjectName] = useState("");
   const [currentPipelineId, setCurrentPipelineId] = useState<string | null>(null);
   const [isNewPipeline, setIsNewPipeline] = useState(true);
@@ -48,7 +48,7 @@ export default function WorkplaceClient() {
   const [showUnsavedModal, setShowUnsavedModal] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
   const canvasRef = useRef<{ getPlan: () => any; getPrompt: () => string; buildDeploymentPayload: (plan: any) => any; getProvider: () => "aws" | "gcp" | "azure"; getAllServices: () => any[] } | null>(null);
-  
+
   // Track unsaved changes - check if there are services on canvas
   // Use nodesOnCanvasForCost which is updated by the Canvas component
   useEffect(() => {
@@ -56,11 +56,11 @@ export default function WorkplaceClient() {
     const hasChanges = nodesOnCanvasForCost.length > 0;
     const shouldTrack = hasChanges && isNewPipeline;
     setHasUnsavedChanges(shouldTrack);
-    console.log("Unsaved changes tracking:", { 
-      nodesCount: nodesOnCanvasForCost.length, 
+    console.log("Unsaved changes tracking:", {
+      nodesCount: nodesOnCanvasForCost.length,
       itemsCount: items.length,
-      isNewPipeline, 
-      hasUnsavedChanges: shouldTrack 
+      isNewPipeline,
+      hasUnsavedChanges: shouldTrack
     });
   }, [nodesOnCanvasForCost, items, isNewPipeline]);
 
@@ -77,7 +77,7 @@ export default function WorkplaceClient() {
 
   useEffect(() => {
     setIsClient(true);
-    
+
     // Check if this is a new pipeline (no saved pipeline ID in URL or state)
     const urlParams = new URLSearchParams(window.location.search);
     const pipelineId = urlParams.get("id");
@@ -180,11 +180,11 @@ export default function WorkplaceClient() {
       if (!canvasContainerRef.current) return;
 
       const canvasRect = canvasContainerRef.current.getBoundingClientRect();
-      
+
       // Get the actual drop position more accurately
       const reactFlowWrapper = canvasContainerRef.current.querySelector('.react-flow__renderer');
       const reactFlowViewport = canvasContainerRef.current.querySelector('.react-flow__viewport');
-      
+
       let dropX = 100; // Default fallback
       let dropY = 100; // Default fallback
 
@@ -205,7 +205,7 @@ export default function WorkplaceClient() {
             const translateY = parseFloat(values[5]) || 0;
             const scaleX = parseFloat(values[0]) || 1;
             const scaleY = parseFloat(values[3]) || 1;
-            
+
             // Adjust for viewport transform
             dropX = (dropX - translateX) / scaleX;
             dropY = (dropY - translateY) / scaleY;
@@ -259,14 +259,14 @@ export default function WorkplaceClient() {
   }
 
   return (
-    <DndContext 
-      sensors={sensors} 
-      onDragStart={handleDragStart} 
-      onDragMove={handleDragMove} 
+    <DndContext
+      sensors={sensors}
+      onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
     >
       <div className="flex h-screen relative">
-        <LeftPanel 
+        <LeftPanel
           isCollapsed={isLeftPanelCollapsed}
           onToggle={handleLeftPanelToggle}
           canvasNodes={nodesOnCanvasForCost}
@@ -288,23 +288,23 @@ export default function WorkplaceClient() {
         <div className="flex flex-col flex-1 overflow-hidden">
           {/* <TopBar /> */}
           <div className="flex-1 relative" ref={canvasContainerRef} id="canvas-dropzone">
-           <ReactFlowProvider>
- <Canvas
-   ref={canvasRef}
-   items={items}
-   updateItemPosition={updateItemPosition}
-   onServiceClick={handleServiceClick}
-   onDeleteService={handleDeleteService}
-   onSelectedNodesChange={setSelectedForCost}
-   onCanvasNodesChange={setNodesOnCanvasForCost}
-   currentPipelineId={currentPipelineId}
-   onPipelineCreated={(pipelineId) => {
-     console.log("Pipeline auto-created, updating currentPipelineId:", pipelineId);
-     setCurrentPipelineId(pipelineId);
-     setIsNewPipeline(false);
-   }}
- />
-</ReactFlowProvider>
+            <ReactFlowProvider>
+              <Canvas
+                ref={canvasRef}
+                items={items}
+                updateItemPosition={updateItemPosition}
+                onServiceClick={handleServiceClick}
+                onDeleteService={handleDeleteService}
+                onSelectedNodesChange={setSelectedForCost}
+                onCanvasNodesChange={setNodesOnCanvasForCost}
+                currentPipelineId={currentPipelineId}
+                onPipelineCreated={(pipelineId) => {
+                  console.log("Pipeline auto-created, updating currentPipelineId:", pipelineId);
+                  setCurrentPipelineId(pipelineId);
+                  setIsNewPipeline(false);
+                }}
+              />
+            </ReactFlowProvider>
             <DeleteZone
               isVisible={showDeleteZone}
               onDelete={handleDeleteService}
@@ -348,9 +348,9 @@ export default function WorkplaceClient() {
             console.log("Save blocked: No pipeline name");
             return;
           }
-          
+
           console.log("Save button clicked, starting save process...");
-          
+
           // Get data from canvas
           if (!canvasRef.current) {
             console.error("Canvas ref not available");
@@ -362,7 +362,7 @@ export default function WorkplaceClient() {
             // Validate all services are configured
             const { validateAllServices } = await import("./utils/service-validation");
             const allServices = canvasRef.current.getAllServices();
-            
+
             if (allServices.length === 0) {
               alert("Please add at least one service to the canvas before saving.");
               return;
@@ -382,11 +382,11 @@ export default function WorkplaceClient() {
             const plan = canvasRef.current.getPlan();
             const payload = canvasRef.current.buildDeploymentPayload(plan);
             const provider = canvasRef.current.getProvider();
-            
+
             console.log("Plan:", plan);
             console.log("Payload:", payload);
             console.log("Provider:", provider);
-            
+
             // Extract fields from payload (as user requested)
             // The payload contains: project, env, region, location (for GCP), nodes, edges
             const env = payload.env || "dev";
@@ -397,7 +397,7 @@ export default function WorkplaceClient() {
             // The payload already contains the correct env and region based on service configurations
             const finalEnv = env;
             const finalRegion = region;
-            
+
             const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
             if (!token) {
               console.error("No auth token found");
@@ -405,7 +405,7 @@ export default function WorkplaceClient() {
               return;
             }
 
-            const API_BASE = 
+            const API_BASE =
               typeof window === "undefined"
                 ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
                 : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
@@ -425,7 +425,7 @@ export default function WorkplaceClient() {
 
             // Use PATCH if pipeline exists, POST if new
             const isUpdate = currentPipelineId && currentPipelineId.trim().length > 0;
-            const url = isUpdate 
+            const url = isUpdate
               ? `${API_BASE}/pipelines/${currentPipelineId}`
               : `${API_BASE}/pipelines/`;
             const method = isUpdate ? "PATCH" : "POST";
@@ -443,23 +443,23 @@ export default function WorkplaceClient() {
 
             console.log("Save response status:", res.status);
 
-             if (res.ok) {
-               const savedPipeline = await res.json();
-               console.log("Pipeline saved successfully:", savedPipeline);
-               
-               setCurrentPipelineId(savedPipeline.id);
-               setIsNewPipeline(false);
-               setHasUnsavedChanges(false);
-               setShowUnsavedModal(false);
-               setProjectName(savedPipeline.name);
-               
-               // Navigate after successful save
-               if (pendingNavigation) {
-                 console.log("Navigating to:", pendingNavigation);
-                 allowNavigation(pendingNavigation);
-                 setPendingNavigation(null);
-               }
-             } else {
+            if (res.ok) {
+              const savedPipeline = await res.json();
+              console.log("Pipeline saved successfully:", savedPipeline);
+
+              setCurrentPipelineId(savedPipeline.id);
+              setIsNewPipeline(false);
+              setHasUnsavedChanges(false);
+              setShowUnsavedModal(false);
+              setProjectName(savedPipeline.name);
+
+              // Navigate after successful save
+              if (pendingNavigation) {
+                console.log("Navigating to:", pendingNavigation);
+                allowNavigation(pendingNavigation);
+                setPendingNavigation(null);
+              }
+            } else {
               const error = await res.json().catch(() => ({ detail: res.statusText }));
               console.error("Failed to save pipeline:", error);
               alert(error.detail || "Failed to save pipeline");
@@ -473,7 +473,7 @@ export default function WorkplaceClient() {
           setHasUnsavedChanges(false);
           setIsNewPipeline(false);
           setShowUnsavedModal(false);
-          
+
           // Navigate after discarding
           if (pendingNavigation) {
             allowNavigation(pendingNavigation);

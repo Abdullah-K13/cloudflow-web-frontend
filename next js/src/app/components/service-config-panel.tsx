@@ -87,28 +87,6 @@ const defaultDetailsFor = (service: { id?: string; label?: string }) => {
         tableName: "",
         partitionKey: { name: "id", type: "S" },
         sortKey: { name: "", type: "S" },
-        billingMode: "PAY_PER_REQUEST",
-        readCapacity: 1,
-        writeCapacity: 1,
-        streamEnabled: false,
-        streamViewType: "NEW_AND_OLD_IMAGES",
-      };
-    case "rds":
-      return {
-        engine: "postgres",
-        engineVersion: "",
-        instanceClass: "db.t3.micro",
-        storageGB: 20,
-        multiAZ: false,
-        username: "",
-        password: "",
-        dbName: "",
-        publiclyAccessible: false,
-      };
-    // GCP Services
-    case "gcpstorage":
-    case "gcp-storage":
-      return {
         bucketName: "",
         uniformAccess: true,
         forceDestroy: false,
@@ -162,20 +140,7 @@ function validate(serviceLabel: string, cfg: ServiceConfig): Errors {
   const d = cfg.details || {};
   if (serviceLabel === "AWS Lambda") {
     if (!d.runtime?.trim()) e.runtime = "Runtime is required";
-    if (!d.handler?.trim()) e.handler = "Handler is required";
-  }
-  if (serviceLabel === "AWS S3") {
-    if (!d.bucketName?.trim()) e.bucketName = "Bucket name is required";
-    else if (!S3_BUCKET_RE.test(d.bucketName.trim()))
-      e.bucketName = "3–63 chars, lowercase letters, numbers, dots, hyphens";
-    const region = d.region?.trim() || cfg.region?.trim();
-    if (!region) e.s3Region = "Region is required";
-  }
-  // GCP Service Validations
-  if (serviceLabel === "GCP Storage") {
-    if (!d.bucketName?.trim()) e.bucketName = "Bucket name is required";
-    else if (d.bucketName.length < 3 || d.bucketName.length > 63)
-      e.bucketName = "Bucket name must be 3-63 characters";
+    e.bucketName = "Bucket name must be 3-63 characters";
   }
   if (serviceLabel === "Pub/Sub") {
     if (!d.topicName?.trim()) e.topicName = "Topic name is required";
@@ -343,14 +308,14 @@ export default function ServiceConfigPanel({
     const next = service.config?.details ? service.config : { ...nextBase, details: defaultDetailsFor(service) };
 
     if (service.label === "AWS Lambda") {
-    const dd = next.details || {};
-    next.details = {
-      ...dd,
-      runtime: dd.runtime || AWS_LAMBDA_RUNTIMES[0],
-      handler: dd.handler || "index.handler",
-    };
-  }
-  
+      const dd = next.details || {};
+      next.details = {
+        ...dd,
+        runtime: dd.runtime || AWS_LAMBDA_RUNTIMES[0],
+        handler: dd.handler || "index.handler",
+      };
+    }
+
     setConfig(next);
     setErrors({});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -582,543 +547,830 @@ export default function ServiceConfigPanel({
             </div>
           </SectionCard>
         );
-case "AWS SQS":
-      return (
-        <SectionCard
-          title="SQS Settings"
-          icon={<img src="/aws-icons/sqs.png" alt="" className="h-4 w-4" />}
-        >
-          <div className="space-y-5">
-            <div>
-              <Label>Queue Name</Label>
-              <TextInput
-                id="queueName"
-                value={d.queueName || ""}
-                onChange={(e) => updateDetails({ queueName: e.target.value })}
-                placeholder="my-queue"
-                error={errors.queueName}
-              />
-              <FieldError id="queueName-error" message={errors.queueName} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+      case "AWS SQS":
+        return (
+          <SectionCard
+            title="SQS Settings"
+            icon={<img src="/aws-icons/sqs.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
               <div>
-                <Label>Message Retention (seconds)</Label>
-                <SelectInput
-                  id="retention"
-                  value={String(d.retention || 345600)}
-                  onChange={(e) => updateDetails({ retention: Number(e.target.value) })}
-                  options={[60, 3600, 86400, 345600, 1209600].map((s) => ({
-                    value: String(s),
-                    label: `${s} sec`,
-                  }))}
-                />
-              </div>
-              <div>
-                <Label>Visibility Timeout (seconds)</Label>
-                <SelectInput
-                  id="visibility"
-                  value={String(d.visibility || 30)}
-                  onChange={(e) => updateDetails({ visibility: Number(e.target.value) })}
-                  options={[30, 60, 300, 600, 1200].map((s) => ({
-                    value: String(s),
-                    label: `${s} sec`,
-                  }))}
-                />
-              </div>
-            </div>
-
-            <div>
-              <Checkbox
-                checked={!!d.fifo}
-                onChange={(e) => updateDetails({ fifo: e.target.checked })}
-                label="FIFO Queue"
-              />
-            </div>
-          </div>
-        </SectionCard>
-      );
-
-    case "AWS DynamoDB":
-      return (
-        <SectionCard
-          title="DynamoDB Settings"
-          icon={<img src="/aws-icons/dynamodb.png" alt="" className="h-4 w-4" />}
-        >
-          <div className="space-y-5">
-            <div>
-              <Label>Table Name</Label>
-              <TextInput
-                id="tableName"
-                value={d.tableName || ""}
-                onChange={(e) => updateDetails({ tableName: e.target.value })}
-                placeholder="UsersTable"
-                error={errors.tableName}
-              />
-              <FieldError id="tableName-error" message={errors.tableName} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Read Capacity Units</Label>
+                <Label>Queue Name</Label>
                 <TextInput
-                  id="readCapacity"
-                  type="number"
-                  value={d.readCapacity || 5}
-                  onChange={(e) => updateDetails({ readCapacity: Number(e.target.value) })}
+                  id="queueName"
+                  value={d.queueName || ""}
+                  onChange={(e) => updateDetails({ queueName: e.target.value })}
+                  placeholder="my-queue"
+                  error={errors.queueName}
                 />
+                <FieldError id="queueName-error" message={errors.queueName} />
               </div>
-              <div>
-                <Label>Write Capacity Units</Label>
-                <TextInput
-                  id="writeCapacity"
-                  type="number"
-                  value={d.writeCapacity || 5}
-                  onChange={(e) => updateDetails({ writeCapacity: Number(e.target.value) })}
-                />
-              </div>
-            </div>
 
-            <div>
-              <Checkbox
-                checked={!!d.onDemand}
-                onChange={(e) => updateDetails({ onDemand: e.target.checked })}
-                label="Use On-Demand Capacity"
-              />
-            </div>
-          </div>
-        </SectionCard>
-      );
-
-    case "AWS RDS":
-      return (
-        <SectionCard
-          title="RDS Settings"
-          icon={<img src="/aws-icons/rds.png" alt="" className="h-4 w-4" />}
-        >
-          <div className="space-y-5">
-            <div>
-              <Label>DB Instance Identifier</Label>
-              <TextInput
-                id="dbIdentifier"
-                value={d.dbIdentifier || ""}
-                onChange={(e) => updateDetails({ dbIdentifier: e.target.value })}
-                placeholder="mydb-instance"
-                error={errors.dbIdentifier}
-              />
-              <FieldError id="dbIdentifier-error" message={errors.dbIdentifier} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Engine</Label>
-                <SelectInput
-                  id="engine"
-                  value={d.engine || "postgres"}
-                  onChange={(e) => updateDetails({ engine: e.target.value })}
-                  options={[
-                    { value: "postgres", label: "PostgreSQL" },
-                    { value: "mysql", label: "MySQL" },
-                    { value: "mariadb", label: "MariaDB" },
-                    { value: "oracle", label: "Oracle" },
-                    { value: "sqlserver", label: "SQL Server" },
-                  ]}
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Message Retention (seconds)</Label>
+                  <SelectInput
+                    id="retention"
+                    value={String(d.retention || 345600)}
+                    onChange={(e) => updateDetails({ retention: Number(e.target.value) })}
+                    options={[60, 3600, 86400, 345600, 1209600].map((s) => ({
+                      value: String(s),
+                      label: `${s} sec`,
+                    }))}
+                  />
+                </div>
+                <div>
+                  <Label>Visibility Timeout (seconds)</Label>
+                  <SelectInput
+                    id="visibility"
+                    value={String(d.visibility || 30)}
+                    onChange={(e) => updateDetails({ visibility: Number(e.target.value) })}
+                    options={[30, 60, 300, 600, 1200].map((s) => ({
+                      value: String(s),
+                      label: `${s} sec`,
+                    }))}
+                  />
+                </div>
               </div>
-              <div>
-                <Label>DB Instance Class</Label>
-                <SelectInput
-                  id="dbClass"
-                  value={d.dbClass || "db.t3.micro"}
-                  onChange={(e) => updateDetails({ dbClass: e.target.value })}
-                  options={[
-                    { value: "db.t3.micro", label: "db.t3.micro" },
-                    { value: "db.t3.small", label: "db.t3.small" },
-                    { value: "db.t3.medium", label: "db.t3.medium" },
-                  ]}
-                />
-              </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Allocated Storage (GB)</Label>
-                <TextInput
-                  id="storage"
-                  type="number"
-                  value={d.storage || 20}
-                  onChange={(e) => updateDetails({ storage: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <Label>Multi-AZ</Label>
                 <Checkbox
-                  checked={!!d.multiAZ}
-                  onChange={(e) => updateDetails({ multiAZ: e.target.checked })}
-                  label="Enable Multi-AZ"
+                  checked={!!d.fifo}
+                  onChange={(e) => updateDetails({ fifo: e.target.checked })}
+                  label="FIFO Queue"
                 />
               </div>
             </div>
-          </div>
-        </SectionCard>
-      );
+          </SectionCard>
+        );
 
-    case "AWS SNS":
-      return (
-        <SectionCard
-          title="SNS Settings"
-          icon={<img src="/aws-icons/sns.png" alt="" className="h-4 w-4" />}
-        >
-          <div className="space-y-5">
-            <div>
-              <Label>Topic Name</Label>
-              <TextInput
-                id="topicName"
-                value={d.topicName || ""}
-                onChange={(e) => updateDetails({ topicName: e.target.value })}
-                placeholder="alerts-topic"
-                error={errors.topicName}
-              />
-              <FieldError id="topicName-error" message={errors.topicName} />
-            </div>
-
-            <div>
-              <Label>Delivery Policy (JSON)</Label>
-              <TextInput
-                id="deliveryPolicy"
-                value={d.deliveryPolicy || ""}
-                onChange={(e) => updateDetails({ deliveryPolicy: e.target.value })}
-                placeholder='{"http":{"defaultHealthyRetryPolicy":{...}}}'
-              />
-            </div>
-
-            <div>
-              <Checkbox
-                checked={!!d.fifo}
-                onChange={(e) => updateDetails({ fifo: e.target.checked })}
-                label="FIFO Topic"
-              />
-            </div>
-          </div>
-        </SectionCard>
-      );
-
-    // GCP Services
-    case "GCP Storage":
-      return (
-        <SectionCard
-          title="Cloud Storage Settings"
-          icon={<img src="/gcp-icons/Google_Storage-Logo.wine.png" alt="" className="h-4 w-4" />}
-        >
-          <div className="space-y-5">
-            <div>
-              <Label>Bucket Name</Label>
-              <TextInput
-                id="bucketName"
-                value={d.bucketName || ""}
-                onChange={(e) => updateDetails({ bucketName: e.target.value })}
-                placeholder="my-bucket-name"
-                error={errors.bucketName}
-              />
-              <FieldError id="bucketName-error" message={errors.bucketName} />
-              <p className="mt-1 text-xs text-slate-500">
-                Must be globally unique. 3-63 characters, lowercase letters, numbers, hyphens.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-6">
-              <Checkbox
-                checked={!!d.uniformAccess}
-                onChange={(e) => updateDetails({ uniformAccess: e.target.checked })}
-                label="Uniform Bucket-Level Access"
-              />
-              <Checkbox
-                checked={!!d.forceDestroy}
-                onChange={(e) => updateDetails({ forceDestroy: e.target.checked })}
-                label="Force Destroy (Delete non-empty bucket)"
-              />
-            </div>
-          </div>
-        </SectionCard>
-      );
-
-    case "Pub/Sub":
-      return (
-        <SectionCard
-          title="Pub/Sub Settings"
-          icon={<img src="/gcp-icons/google-cloud-pub-sub-logo.png" alt="" className="h-4 w-4" />}
-        >
-          <div className="space-y-5">
-            <div>
-              <Label>Topic Name</Label>
-              <TextInput
-                id="topicName"
-                value={d.topicName || ""}
-                onChange={(e) => updateDetails({ topicName: e.target.value })}
-                placeholder="my-topic"
-                error={errors.topicName}
-              />
-              <FieldError id="topicName-error" message={errors.topicName} />
-              <p className="mt-1 text-xs text-slate-500">
-                Topic name within the project. Must be 3-255 characters.
-              </p>
-            </div>
-          </div>
-        </SectionCard>
-      );
-
-    case "Cloud Run":
-      return (
-        <SectionCard
-          title="Cloud Run Settings"
-          icon={<img src="/gcp-icons/google-cloud-run-logo-png.png" alt="" className="h-4 w-4" />}
-        >
-          <div className="space-y-5">
-            <div>
-              <Label>Container Image</Label>
-              <TextInput
-                id="image"
-                value={d.image || "gcr.io/cloudrun/hello"}
-                onChange={(e) => updateDetails({ image: e.target.value })}
-                placeholder="gcr.io/cloudrun/hello"
-                error={errors.image}
-              />
-              <FieldError id="image-error" message={errors.image} />
-              <p className="mt-1 text-xs text-slate-500">
-                Container image URL (e.g., gcr.io/project/image:tag)
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+      case "AWS DynamoDB":
+        return (
+          <SectionCard
+            title="DynamoDB Settings"
+            icon={<img src="/aws-icons/dynamodb.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
               <div>
-                <Label>CPU</Label>
+                <Label>Table Name</Label>
+                <TextInput
+                  id="tableName"
+                  value={d.tableName || ""}
+                  onChange={(e) => updateDetails({ tableName: e.target.value })}
+                  placeholder="UsersTable"
+                  error={errors.tableName}
+                />
+                <FieldError id="tableName-error" message={errors.tableName} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Read Capacity Units</Label>
+                  <TextInput
+                    id="readCapacity"
+                    type="number"
+                    value={d.readCapacity || 5}
+                    onChange={(e) => updateDetails({ readCapacity: Number(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <Label>Write Capacity Units</Label>
+                  <TextInput
+                    id="writeCapacity"
+                    type="number"
+                    value={d.writeCapacity || 5}
+                    onChange={(e) => updateDetails({ writeCapacity: Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Checkbox
+                  checked={!!d.onDemand}
+                  onChange={(e) => updateDetails({ onDemand: e.target.checked })}
+                  label="Use On-Demand Capacity"
+                />
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "AWS RDS":
+        return (
+          <SectionCard
+            title="RDS Settings"
+            icon={<img src="/aws-icons/rds.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>DB Instance Identifier</Label>
+                <TextInput
+                  id="dbIdentifier"
+                  value={d.dbIdentifier || ""}
+                  onChange={(e) => updateDetails({ dbIdentifier: e.target.value })}
+                  placeholder="mydb-instance"
+                  error={errors.dbIdentifier}
+                />
+                <FieldError id="dbIdentifier-error" message={errors.dbIdentifier} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Engine</Label>
+                  <SelectInput
+                    id="engine"
+                    value={d.engine || "postgres"}
+                    onChange={(e) => updateDetails({ engine: e.target.value })}
+                    options={[
+                      { value: "postgres", label: "PostgreSQL" },
+                      { value: "mysql", label: "MySQL" },
+                      { value: "mariadb", label: "MariaDB" },
+                      { value: "oracle", label: "Oracle" },
+                      { value: "sqlserver", label: "SQL Server" },
+                    ]}
+                  />
+                </div>
+                <div>
+                  <Label>DB Instance Class</Label>
+                  <SelectInput
+                    id="dbClass"
+                    value={d.dbClass || "db.t3.micro"}
+                    onChange={(e) => updateDetails({ dbClass: e.target.value })}
+                    options={[
+                      { value: "db.t3.micro", label: "db.t3.micro" },
+                      { value: "db.t3.small", label: "db.t3.small" },
+                      { value: "db.t3.medium", label: "db.t3.medium" },
+                    ]}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Allocated Storage (GB)</Label>
+                  <TextInput
+                    id="storage"
+                    type="number"
+                    value={d.storage || 20}
+                    onChange={(e) => updateDetails({ storage: Number(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <Label>Multi-AZ</Label>
+                  <Checkbox
+                    checked={!!d.multiAZ}
+                    onChange={(e) => updateDetails({ multiAZ: e.target.checked })}
+                    label="Enable Multi-AZ"
+                  />
+                </div>
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "AWS SNS":
+        return (
+          <SectionCard
+            title="SNS Settings"
+            icon={<img src="/aws-icons/sns.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>Topic Name</Label>
+                <TextInput
+                  id="topicName"
+                  value={d.topicName || ""}
+                  onChange={(e) => updateDetails({ topicName: e.target.value })}
+                  placeholder="alerts-topic"
+                  error={errors.topicName}
+                />
+                <FieldError id="topicName-error" message={errors.topicName} />
+              </div>
+
+              <div>
+                <Label>Delivery Policy (JSON)</Label>
+                <TextInput
+                  id="deliveryPolicy"
+                  value={d.deliveryPolicy || ""}
+                  onChange={(e) => updateDetails({ deliveryPolicy: e.target.value })}
+                  placeholder='{"http":{"defaultHealthyRetryPolicy":{...}}}'
+                />
+              </div>
+
+              <div>
+                <Checkbox
+                  checked={!!d.fifo}
+                  onChange={(e) => updateDetails({ fifo: e.target.checked })}
+                  label="FIFO Topic"
+                />
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+
+      // --- NEW AWS SERVICES ---
+
+      case "AWS EC2":
+        return (
+          <SectionCard title="EC2 Settings" icon={<img src="/aws-icons/ec2.png" alt="" className="h-4 w-4" />}>
+            <div className="space-y-5">
+              <div>
+                <Label>Instance Type</Label>
+                <TextInput
+                  id="instanceType"
+                  value={d.instanceType || "t3.micro"}
+                  onChange={(e) => updateDetails({ instanceType: e.target.value })}
+                  placeholder="t3.micro"
+                  error={errors.instanceType}
+                />
+                <FieldError id="instanceType-error" message={errors.instanceType} />
+              </div>
+              <div>
+                <Label>AMI ID (Optional)</Label>
+                <TextInput
+                  id="ami"
+                  value={d.ami || ""}
+                  onChange={(e) => updateDetails({ ami: e.target.value })}
+                  placeholder="ami-12345678"
+                />
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "AWS ECS":
+        return (
+          <SectionCard title="ECS Settings" icon={<img src="/aws-icons/ecs.png" alt="" className="h-4 w-4" />}>
+            <div className="space-y-5">
+              <div>
+                <Label>Cluster Name</Label>
+                <TextInput
+                  id="clusterName"
+                  value={d.clusterName || ""}
+                  onChange={(e) => updateDetails({ clusterName: e.target.value })}
+                  placeholder="my-cluster"
+                  error={errors.clusterName}
+                />
+                <FieldError id="clusterName-error" message={errors.clusterName} />
+              </div>
+              <div>
+                <Label>Launch Type</Label>
                 <SelectInput
-                  id="cpu"
-                  value={d.cpu || "1000m"}
-                  onChange={(e) => updateDetails({ cpu: e.target.value })}
+                  id="launchType"
+                  value={d.launchType || "FARGATE"}
+                  onChange={(e) => updateDetails({ launchType: e.target.value })}
+                  options={[{ value: "FARGATE", label: "Fargate" }, { value: "EC2", label: "EC2" }]}
+                />
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "AWS ECR":
+        return (
+          <SectionCard title="ECR Settings" icon={<img src="/aws-icons/ecr.png" alt="" className="h-4 w-4" />}>
+            <div className="space-y-5">
+              <div>
+                <Label>Repository Name</Label>
+                <TextInput
+                  id="repositoryName"
+                  value={d.repositoryName || ""}
+                  onChange={(e) => updateDetails({ repositoryName: e.target.value })}
+                  placeholder="my-repo"
+                  error={errors.repositoryName}
+                />
+                <FieldError id="repositoryName-error" message={errors.repositoryName} />
+              </div>
+              <div>
+                <Label>Image Tag Mutability</Label>
+                <SelectInput
+                  id="imageTagMutability"
+                  value={d.imageTagMutability || "MUTABLE"}
+                  onChange={(e) => updateDetails({ imageTagMutability: e.target.value })}
+                  options={[{ value: "MUTABLE", label: "Mutable" }, { value: "IMMUTABLE", label: "Immutable" }]}
+                />
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "Secrets Manager":
+        return (
+          <SectionCard title="Secrets Manager Settings" icon={<img src="/aws-icons/secretsmanager.png" alt="" className="h-4 w-4" />}>
+            <div className="space-y-5">
+              <div>
+                <Label>Secret Name</Label>
+                <TextInput
+                  id="secretName"
+                  value={d.secretName || ""}
+                  onChange={(e) => updateDetails({ secretName: e.target.value })}
+                  placeholder="my-secret"
+                  error={errors.secretName}
+                />
+                <FieldError id="secretName-error" message={errors.secretName} />
+              </div>
+              <div>
+                <Label>Description</Label>
+                <TextInput
+                  id="description"
+                  value={d.description || ""}
+                  onChange={(e) => updateDetails({ description: e.target.value })}
+                  placeholder="My secret description"
+                />
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "Cognito":
+        return (
+          <SectionCard title="Cognito Settings" icon={<img src="/aws-icons/Cognito.png" alt="" className="h-4 w-4" />}>
+            <div className="space-y-5">
+              <div>
+                <Label>User Pool Name</Label>
+                <TextInput
+                  id="userPoolName"
+                  value={d.userPoolName || ""}
+                  onChange={(e) => updateDetails({ userPoolName: e.target.value })}
+                  placeholder="my-user-pool"
+                  error={errors.userPoolName}
+                />
+                <FieldError id="userPoolName-error" message={errors.userPoolName} />
+              </div>
+              <div>
+                <Label>MFA Configuration</Label>
+                <SelectInput
+                  id="mfaConfiguration"
+                  value={d.mfaConfiguration || "OFF"}
+                  onChange={(e) => updateDetails({ mfaConfiguration: e.target.value })}
+                  options={[{ value: "OFF", label: "Off" }, { value: "ON", label: "On" }, { value: "OPTIONAL", label: "Optional" }]}
+                />
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "AWS VPC":
+        return (
+          <SectionCard title="VPC Settings" icon={<img src="/aws-icons/aws-vpc-icon.webp" alt="" className="h-4 w-4" />}>
+            <div className="space-y-5">
+              <div>
+                <Label>VPC Name</Label>
+                <TextInput
+                  id="vpcName"
+                  value={d.vpcName || ""}
+                  onChange={(e) => updateDetails({ vpcName: e.target.value })}
+                  placeholder="my-vpc"
+                  error={errors.vpcName}
+                />
+                <FieldError id="vpcName-error" message={errors.vpcName} />
+              </div>
+              <div>
+                <Label>CIDR Block</Label>
+                <TextInput
+                  id="cidrBlock"
+                  value={d.cidrBlock || "10.0.0.0/16"}
+                  onChange={(e) => updateDetails({ cidrBlock: e.target.value })}
+                  placeholder="10.0.0.0/16"
+                  error={errors.cidrBlock}
+                />
+                <FieldError id="cidrBlock-error" message={errors.cidrBlock} />
+              </div>
+              <div>
+                <Checkbox
+                  checked={!!d.enableDnsHostnames}
+                  onChange={(e) => updateDetails({ enableDnsHostnames: e.target.checked })}
+                  label="Enable DNS Hostnames"
+                />
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "CloudWatch":
+        return (
+          <SectionCard title="CloudWatch Settings" icon={<img src="/aws-icons/cloudwatch.jpeg" alt="" className="h-4 w-4" />}>
+            <div className="space-y-5">
+              <div>
+                <Label>Log Group Name</Label>
+                <TextInput
+                  id="logGroupName"
+                  value={d.logGroupName || ""}
+                  onChange={(e) => updateDetails({ logGroupName: e.target.value })}
+                  placeholder="/aws/lambda/my-func"
+                  error={errors.logGroupName}
+                />
+                <FieldError id="logGroupName-error" message={errors.logGroupName} />
+              </div>
+              <div>
+                <Label>Retention (Days)</Label>
+                <SelectInput
+                  id="retentionDays"
+                  value={String(d.retentionDays || 30)}
+                  onChange={(e) => updateDetails({ retentionDays: Number(e.target.value) })}
+                  options={[1, 3, 7, 14, 30, 60, 90, 180, 365].map(d => ({ value: String(d), label: `${d} days` }))}
+                />
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "ElastiCache":
+        return (
+          <SectionCard title="ElastiCache Settings" icon={<img src="/aws-icons/ElastiCache.png" alt="" className="h-4 w-4" />}>
+            <div className="space-y-5">
+              <div>
+                <Label>Cluster ID</Label>
+                <TextInput
+                  id="clusterId"
+                  value={d.clusterId || ""}
+                  onChange={(e) => updateDetails({ clusterId: e.target.value })}
+                  placeholder="my-redis-cluster"
+                  error={errors.clusterId}
+                />
+                <FieldError id="clusterId-error" message={errors.clusterId} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Engine</Label>
+                  <SelectInput
+                    id="engine"
+                    value={d.engine || "redis"}
+                    onChange={(e) => updateDetails({ engine: e.target.value })}
+                    options={[{ value: "redis", label: "Redis" }, { value: "memcached", label: "Memcached" }]}
+                  />
+                </div>
+                <div>
+                  <Label>Node Type</Label>
+                  <TextInput
+                    id="nodeType"
+                    value={d.nodeType || "cache.t3.micro"}
+                    onChange={(e) => updateDetails({ nodeType: e.target.value })}
+                    placeholder="cache.t3.micro"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label>Number of Nodes</Label>
+                <NumberInput
+                  id="numCacheNodes"
+                  value={d.numCacheNodes || 1}
+                  onChange={(e) => updateDetails({ numCacheNodes: Number(e.target.value) })}
+                  min={1}
+                  max={20}
+                />
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "CloudFront":
+        return (
+          <SectionCard title="CloudFront Settings" icon={<img src="/aws-icons/CloudFront.png" alt="" className="h-4 w-4" />}>
+            <div className="space-y-5">
+              <div>
+                <Label>Distribution ID (Optional)</Label>
+                <TextInput
+                  id="distributionId"
+                  value={d.distributionId || ""}
+                  onChange={(e) => updateDetails({ distributionId: e.target.value })}
+                  placeholder="E1234567890"
+                />
+              </div>
+              <div>
+                <Label>Price Class</Label>
+                <SelectInput
+                  id="priceClass"
+                  value={d.priceClass || "PriceClass_100"}
+                  onChange={(e) => updateDetails({ priceClass: e.target.value })}
                   options={[
-                    { value: "1000m", label: "1 vCPU (1000m)" },
-                    { value: "2000m", label: "2 vCPU (2000m)" },
-                    { value: "4000m", label: "4 vCPU (4000m)" },
-                    { value: "8000m", label: "8 vCPU (8000m)" },
+                    { value: "PriceClass_100", label: "North America / Europe" },
+                    { value: "PriceClass_200", label: "+ Asia / Africa" },
+                    { value: "PriceClass_All", label: "All Locations" },
                   ]}
                 />
               </div>
+            </div>
+          </SectionCard>
+        );
+
+      // GCP Services
+      case "GCP Storage":
+        return (
+          <SectionCard
+            title="Cloud Storage Settings"
+            icon={<img src="/gcp-icons/Google_Storage-Logo.wine.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
               <div>
-                <Label>Memory</Label>
-                <SelectInput
-                  id="memory"
-                  value={d.memory || "512Mi"}
-                  onChange={(e) => updateDetails({ memory: e.target.value })}
-                  options={[
-                    { value: "128Mi", label: "128 Mi" },
-                    { value: "256Mi", label: "256 Mi" },
-                    { value: "512Mi", label: "512 Mi" },
-                    { value: "1Gi", label: "1 Gi" },
-                    { value: "2Gi", label: "2 Gi" },
-                    { value: "4Gi", label: "4 Gi" },
-                  ]}
+                <Label>Bucket Name</Label>
+                <TextInput
+                  id="bucketName"
+                  value={d.bucketName || ""}
+                  onChange={(e) => updateDetails({ bucketName: e.target.value })}
+                  placeholder="my-bucket-name"
+                  error={errors.bucketName}
+                />
+                <FieldError id="bucketName-error" message={errors.bucketName} />
+                <p className="mt-1 text-xs text-slate-500">
+                  Must be globally unique. 3-63 characters, lowercase letters, numbers, hyphens.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-6">
+                <Checkbox
+                  checked={!!d.uniformAccess}
+                  onChange={(e) => updateDetails({ uniformAccess: e.target.checked })}
+                  label="Uniform Bucket-Level Access"
+                />
+                <Checkbox
+                  checked={!!d.forceDestroy}
+                  onChange={(e) => updateDetails({ forceDestroy: e.target.checked })}
+                  label="Force Destroy (Delete non-empty bucket)"
                 />
               </div>
             </div>
+          </SectionCard>
+        );
 
-            <div className="grid grid-cols-2 gap-4">
+      case "Pub/Sub":
+        return (
+          <SectionCard
+            title="Pub/Sub Settings"
+            icon={<img src="/gcp-icons/google-cloud-pub-sub-logo.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
               <div>
-                <Label>Min Instances</Label>
-                <NumberInput
-                  id="minInstances"
-                  value={d.minInstances ?? 0}
-                  onChange={(e) => updateDetails({ minInstances: Number(e.target.value) })}
-                  min={0}
-                  max={100}
+                <Label>Topic Name</Label>
+                <TextInput
+                  id="topicName"
+                  value={d.topicName || ""}
+                  onChange={(e) => updateDetails({ topicName: e.target.value })}
+                  placeholder="my-topic"
+                  error={errors.topicName}
                 />
+                <FieldError id="topicName-error" message={errors.topicName} />
+                <p className="mt-1 text-xs text-slate-500">
+                  Topic name within the project. Must be 3-255 characters.
+                </p>
               </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "Cloud Run":
+        return (
+          <SectionCard
+            title="Cloud Run Settings"
+            icon={<img src="/gcp-icons/google-cloud-run-logo-png.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
               <div>
-                <Label>Max Instances</Label>
+                <Label>Container Image</Label>
+                <TextInput
+                  id="image"
+                  value={d.image || "gcr.io/cloudrun/hello"}
+                  onChange={(e) => updateDetails({ image: e.target.value })}
+                  placeholder="gcr.io/cloudrun/hello"
+                  error={errors.image}
+                />
+                <FieldError id="image-error" message={errors.image} />
+                <p className="mt-1 text-xs text-slate-500">
+                  Container image URL (e.g., gcr.io/project/image:tag)
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>CPU</Label>
+                  <SelectInput
+                    id="cpu"
+                    value={d.cpu || "1000m"}
+                    onChange={(e) => updateDetails({ cpu: e.target.value })}
+                    options={[
+                      { value: "1000m", label: "1 vCPU (1000m)" },
+                      { value: "2000m", label: "2 vCPU (2000m)" },
+                      { value: "4000m", label: "4 vCPU (4000m)" },
+                      { value: "8000m", label: "8 vCPU (8000m)" },
+                    ]}
+                  />
+                </div>
+                <div>
+                  <Label>Memory</Label>
+                  <SelectInput
+                    id="memory"
+                    value={d.memory || "512Mi"}
+                    onChange={(e) => updateDetails({ memory: e.target.value })}
+                    options={[
+                      { value: "128Mi", label: "128 Mi" },
+                      { value: "256Mi", label: "256 Mi" },
+                      { value: "512Mi", label: "512 Mi" },
+                      { value: "1Gi", label: "1 Gi" },
+                      { value: "2Gi", label: "2 Gi" },
+                      { value: "4Gi", label: "4 Gi" },
+                    ]}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Min Instances</Label>
+                  <NumberInput
+                    id="minInstances"
+                    value={d.minInstances ?? 0}
+                    onChange={(e) => updateDetails({ minInstances: Number(e.target.value) })}
+                    min={0}
+                    max={100}
+                  />
+                </div>
+                <div>
+                  <Label>Max Instances</Label>
+                  <NumberInput
+                    id="maxInstances"
+                    value={d.maxInstances ?? 10}
+                    onChange={(e) => updateDetails({ maxInstances: Number(e.target.value) })}
+                    min={1}
+                    max={1000}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label>Concurrency</Label>
                 <NumberInput
-                  id="maxInstances"
-                  value={d.maxInstances ?? 10}
-                  onChange={(e) => updateDetails({ maxInstances: Number(e.target.value) })}
+                  id="concurrency"
+                  value={d.concurrency ?? 80}
+                  onChange={(e) => updateDetails({ concurrency: Number(e.target.value) })}
                   min={1}
                   max={1000}
                 />
+                <p className="mt-1 text-xs text-slate-500">
+                  Maximum number of concurrent requests per instance
+                </p>
               </div>
-            </div>
 
-            <div>
-              <Label>Concurrency</Label>
-              <NumberInput
-                id="concurrency"
-                value={d.concurrency ?? 80}
-                onChange={(e) => updateDetails({ concurrency: Number(e.target.value) })}
-                min={1}
-                max={1000}
-              />
-              <p className="mt-1 text-xs text-slate-500">
-                Maximum number of concurrent requests per instance
-              </p>
-            </div>
-
-            <div>
-              <Checkbox
-                checked={!!d.allowUnauthenticated}
-                onChange={(e) => updateDetails({ allowUnauthenticated: e.target.checked })}
-                label="Allow Unauthenticated Access"
-              />
-            </div>
-
-            <div className="rounded-2xl bg-slate-50/60 border border-slate-100 p-3">
-              <div className="mb-2 flex items-center gap-2 text-slate-700 text-sm font-medium">
-                <Info className="h-4 w-4 text-slate-400" />
-                Environment Variables
+              <div>
+                <Checkbox
+                  checked={!!d.allowUnauthenticated}
+                  onChange={(e) => updateDetails({ allowUnauthenticated: e.target.checked })}
+                  label="Allow Unauthenticated Access"
+                />
               </div>
-              <div className="space-y-2">
-                {Object.keys(d.env || {}).length === 0 ? (
-                  <div className="grid grid-cols-2 gap-3">
-                    <TextInput
-                      id="env-key-0"
-                      value=""
-                      onChange={(e) => {
-                        const env = { ...(d.env || {}) };
-                        if (e.target.value) env[e.target.value] = "";
-                        updateDetails({ env });
-                      }}
-                      placeholder="KEY"
-                    />
-                    <TextInput
-                      id="env-val-0"
-                      value=""
-                      onChange={(e) => {
-                        const env = { ...(d.env || {}) };
-                        const firstKey = Object.keys(env)[0] || "";
-                        if (firstKey) env[firstKey] = e.target.value;
-                        updateDetails({ env });
-                      }}
-                      placeholder="value"
-                    />
-                  </div>
-                ) : (
-                  Object.entries(d.env || {}).map(([key, value], idx) => (
-                    <div key={idx} className="grid grid-cols-2 gap-3">
+
+              <div className="rounded-2xl bg-slate-50/60 border border-slate-100 p-3">
+                <div className="mb-2 flex items-center gap-2 text-slate-700 text-sm font-medium">
+                  <Info className="h-4 w-4 text-slate-400" />
+                  Environment Variables
+                </div>
+                <div className="space-y-2">
+                  {Object.keys(d.env || {}).length === 0 ? (
+                    <div className="grid grid-cols-2 gap-3">
                       <TextInput
-                        id={`env-key-${idx}`}
-                        value={key}
+                        id="env-key-0"
+                        value=""
                         onChange={(e) => {
                           const env = { ...(d.env || {}) };
-                          delete env[key];
-                          if (e.target.value) env[e.target.value] = value;
+                          if (e.target.value) env[e.target.value] = "";
                           updateDetails({ env });
                         }}
                         placeholder="KEY"
                       />
                       <TextInput
-                        id={`env-val-${idx}`}
-                        value={String(value || "")}
+                        id="env-val-0"
+                        value=""
                         onChange={(e) => {
                           const env = { ...(d.env || {}) };
-                          env[key] = e.target.value;
+                          const firstKey = Object.keys(env)[0] || "";
+                          if (firstKey) env[firstKey] = e.target.value;
                           updateDetails({ env });
                         }}
                         placeholder="value"
                       />
                     </div>
-                  ))
-                )}
-                <button
-                  onClick={() => {
-                    const env = { ...(d.env || {}), [`ENV_${Date.now()}`]: "" };
-                    updateDetails({ env });
-                  }}
-                  className="text-xs text-orange-600 hover:text-orange-700"
-                >
-                  + Add Environment Variable
-                </button>
+                  ) : (
+                    Object.entries(d.env || {}).map(([key, value], idx) => (
+                      <div key={idx} className="grid grid-cols-2 gap-3">
+                        <TextInput
+                          id={`env-key-${idx}`}
+                          value={key}
+                          onChange={(e) => {
+                            const env = { ...(d.env || {}) };
+                            delete env[key];
+                            if (e.target.value) env[e.target.value] = value;
+                            updateDetails({ env });
+                          }}
+                          placeholder="KEY"
+                        />
+                        <TextInput
+                          id={`env-val-${idx}`}
+                          value={String(value || "")}
+                          onChange={(e) => {
+                            const env = { ...(d.env || {}) };
+                            env[key] = e.target.value;
+                            updateDetails({ env });
+                          }}
+                          placeholder="value"
+                        />
+                      </div>
+                    ))
+                  )}
+                  <button
+                    onClick={() => {
+                      const env = { ...(d.env || {}), [`ENV_${Date.now()}`]: "" };
+                      updateDetails({ env });
+                    }}
+                    className="text-xs text-orange-600 hover:text-orange-700"
+                  >
+                    + Add Environment Variable
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        </SectionCard>
-      );
+          </SectionCard>
+        );
 
-    case "GCP Secret Manager":
-      return (
-        <SectionCard
-          title="Secret Manager Settings"
-          icon={<img src="/gcp-icons/secret manager.png" alt="" className="h-4 w-4" />}
-        >
-          <div className="space-y-5">
-            <div>
-              <Label>Secret Value (Optional)</Label>
-              <textarea
-                id="secretValue"
-                value={d.secretValue || ""}
-                onChange={(e) => updateDetails({ secretValue: e.target.value })}
-                rows={4}
-                className={baseInputClass(undefined) + " resize-none"}
-                placeholder="Enter secret value (will be stored securely)"
-              />
-              <p className="mt-1 text-xs text-slate-500">
-                Initial secret value. Leave empty to create an empty secret.
-              </p>
+      case "GCP Secret Manager":
+        return (
+          <SectionCard
+            title="Secret Manager Settings"
+            icon={<img src="/gcp-icons/secret manager.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>Secret Value (Optional)</Label>
+                <textarea
+                  id="secretValue"
+                  value={d.secretValue || ""}
+                  onChange={(e) => updateDetails({ secretValue: e.target.value })}
+                  rows={4}
+                  className={baseInputClass(undefined) + " resize-none"}
+                  placeholder="Enter secret value (will be stored securely)"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Initial secret value. Leave empty to create an empty secret.
+                </p>
+              </div>
             </div>
-          </div>
-        </SectionCard>
-      );
+          </SectionCard>
+        );
 
-    case "GCP Firestore":
-      return (
-        <SectionCard
-          title="Firestore Settings"
-          icon={<img src="/gcp-icons/firestore.png" alt="" className="h-4 w-4" />}
-        >
-          <div className="space-y-5">
-            <div>
-              <Label>Location ID</Label>
-              <SelectInput
-                id="locationId"
-                value={d.locationId || "us-central"}
-                onChange={(e) => updateDetails({ locationId: e.target.value })}
-                options={[
-                  { value: "us-central", label: "us-central (Multi-region)" },
-                  { value: "us-east1", label: "us-east1 (South Carolina)" },
-                  { value: "us-east4", label: "us-east4 (Northern Virginia)" },
-                  { value: "us-west1", label: "us-west1 (Oregon)" },
-                  { value: "us-west2", label: "us-west2 (Los Angeles)" },
-                  { value: "europe-west1", label: "europe-west1 (Belgium)" },
-                  { value: "europe-west2", label: "europe-west2 (London)" },
-                  { value: "asia-northeast1", label: "asia-northeast1 (Tokyo)" },
-                  { value: "asia-southeast1", label: "asia-southeast1 (Singapore)" },
-                ]}
-                error={errors.locationId}
-              />
-              <FieldError id="locationId-error" message={errors.locationId} />
+      case "GCP Firestore":
+        return (
+          <SectionCard
+            title="Firestore Settings"
+            icon={<img src="/gcp-icons/firestore.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>Location ID</Label>
+                <SelectInput
+                  id="locationId"
+                  value={d.locationId || "us-central"}
+                  onChange={(e) => updateDetails({ locationId: e.target.value })}
+                  options={[
+                    { value: "us-central", label: "us-central (Multi-region)" },
+                    { value: "us-east1", label: "us-east1 (South Carolina)" },
+                    { value: "us-east4", label: "us-east4 (Northern Virginia)" },
+                    { value: "us-west1", label: "us-west1 (Oregon)" },
+                    { value: "us-west2", label: "us-west2 (Los Angeles)" },
+                    { value: "europe-west1", label: "europe-west1 (Belgium)" },
+                    { value: "europe-west2", label: "europe-west2 (London)" },
+                    { value: "asia-northeast1", label: "asia-northeast1 (Tokyo)" },
+                    { value: "asia-southeast1", label: "asia-southeast1 (Singapore)" },
+                  ]}
+                  error={errors.locationId}
+                />
+                <FieldError id="locationId-error" message={errors.locationId} />
+              </div>
+
+              <div>
+                <Label>Database ID</Label>
+                <TextInput
+                  id="databaseId"
+                  value={d.databaseId || "(default)"}
+                  onChange={(e) => updateDetails({ databaseId: e.target.value })}
+                  placeholder="(default)"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Database ID. Use "(default)" for the default database.
+                </p>
+              </div>
             </div>
+          </SectionCard>
+        );
 
-            <div>
-              <Label>Database ID</Label>
-              <TextInput
-                id="databaseId"
-                value={d.databaseId || "(default)"}
-                onChange={(e) => updateDetails({ databaseId: e.target.value })}
-                placeholder="(default)"
-              />
-              <p className="mt-1 text-xs text-slate-500">
-                Database ID. Use "(default)" for the default database.
-              </p>
+      default:
+        return (
+          <SectionCard title="Settings">
+            <div className="text-sm text-slate-600">
+              No specific configuration for "{service.label}".
             </div>
-          </div>
-        </SectionCard>
-      );
-
-    default:
-      return (
-        <SectionCard title="Settings">
-          <div className="text-sm text-slate-600">
-            No specific configuration for "{service.label}".
-          </div>
-        </SectionCard>
-      );
-  }
-};
+          </SectionCard>
+        );
+    }
+  };
   /* progress for stepper */
   const stepOneValid = true; // base section is always okay
   const stepTwoValid = isValid; // service section validity

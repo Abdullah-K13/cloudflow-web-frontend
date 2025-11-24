@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, ChevronDown, ChevronRight, Workflow, Plus, Save, Edit2, X } from "lucide-react";
 
-type ServiceKey = "s3" | "lambda" | "sqs" | "sns" | "dynamodb";
+type ServiceKey = string;
+
 
 interface SelectedNode {
   id: string;
@@ -34,13 +35,13 @@ interface LeftPanelProps {
   canvasRef?: React.RefObject<{ getPlan: () => any; buildDeploymentPayload: (plan: any) => any; getProvider: () => "aws" | "gcp" | "azure"; getAllServices: () => any[] } | null>;
 }
 
+
 const API_BASE =
   typeof window === "undefined"
     ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
     : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 const API_URL = `${API_BASE}/cost-optimization/analyze`;
 const API_KEY_COOKIE = "api_key"; // change if your cookie name is different
-const SUPPORTED: ServiceKey[] = ["s3", "lambda", "sqs", "sns", "dynamodb"];
 
 function getCookie(name: string): string | null {
   if (typeof document === "undefined") return null;
@@ -50,14 +51,11 @@ function getCookie(name: string): string | null {
 
 function normalizeService(type: string): ServiceKey | null {
   const t = (type || "").toLowerCase();
-  if (SUPPORTED.includes(t as ServiceKey)) return t as ServiceKey;
-  // common aliases from node labels
-  if (t.includes("s3")) return "s3";
-  if (t.includes("lambda")) return "lambda";
-  if (t.includes("sqs")) return "sqs";
-  if (t.includes("sns")) return "sns";
-  if (t.includes("dynamo")) return "dynamodb";
-  return null;
+  // Remove common prefixes for display
+  if (t.startsWith("aws.")) return t.replace("aws.", "");
+  if (t.startsWith("gcp.")) return t.replace("gcp.", "");
+  if (t.startsWith("azure.")) return t.replace("azure.", "");
+  return t;
 }
 
 function currency(n: number): string {
@@ -181,7 +179,7 @@ export default function LeftPanel({
           return;
         }
 
-        const API_BASE = 
+        const API_BASE =
           typeof window === "undefined"
             ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
             : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
@@ -279,6 +277,7 @@ export default function LeftPanel({
   }, []);
 
   // ===================== COST FETCHING =====================
+  // Now driven by canvasNodes data passed from parent
 
   const [costItems, setCostItems] = useState<CostItem[] | null>(null);
   const [costLoading, setCostLoading] = useState(false);
@@ -295,126 +294,35 @@ export default function LeftPanel({
   }, [canvasNodes]);
 
   useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
+    // Calculate costs directly from canvasNodes data
+    const itemsMap = new Map<ServiceKey, { count: number; total: number }>();
 
-    // helper: build display items from a given cache snapshot
-    const buildItems = (
-      cache: Partial<Record<ServiceKey, number>>
-    ): CostItem[] => {
-      return Array.from(canvasServiceCounts.entries()).map(
-        ([service, count]) => {
-          const unit = Number(cache[service] ?? 0);
-          return {
-            service,
-            unitCost: unit,
-            count,
-            total: unit * count,
-            ok: true,
-          };
-        }
-      );
-    };
+    canvasNodes.forEach(node => {
+      const svc = normalizeService(node.type);
+      if (!svc) return;
 
-    const present = Array.from(canvasServiceCounts.keys()); // services on canvas
-    const missing = present.filter((svc) => unitCostCache[svc] == null); // services we don't have priced yet
+      const current = itemsMap.get(svc) || { count: 0, total: 0 };
+      // Use the cost passed from canvas, default to 0 if not calculated yet
+      const nodeCost = (node as any).data?.cost || 0;
 
-    // nothing on canvas
-    if (present.length === 0) {
-      setCostItems([]);
-      setCostLoading(false);
-      return () => { };
-    }
+      itemsMap.set(svc, {
+        count: current.count + 1,
+        total: current.total + nodeCost
+      });
+    });
 
-    // all services already in cache → recompute totals, no API calls
-    if (missing.length === 0) {
-      setCostItems(buildItems(unitCostCache));
-      setCostLoading(false);
-      return () => { };
-    }
+    const items: CostItem[] = Array.from(itemsMap.entries()).map(([service, data]) => ({
+      service,
+      unitCost: data.count > 0 ? data.total / data.count : 0, // Average unit cost
+      count: data.count,
+      total: data.total,
+      ok: true
+    }));
 
-    // fetch only the missing services
-    setCostLoading(true);
-    (async () => {
-      try {
-        const apiKey = getCookie(API_KEY_COOKIE);
-        const headers: HeadersInit = { "Content-Type": "application/json" };
-        if (apiKey) headers["x-api-key"] = apiKey;
+    setCostItems(items);
+    setCostLoading(false);
 
-        const results = await Promise.allSettled(
-          missing.map(async (service) => {
-            // Construct a dummy IR for this service type to get a unit cost
-            const kind = service === "s3" ? "aws.s3" :
-              service === "lambda" ? "aws.lambda" :
-                service === "sqs" ? "aws.sqs" :
-                  service === "sns" ? "aws.sns" :
-                    service === "dynamodb" ? "aws.dynamodb" : "aws.other";
-
-            const ir = {
-              project: "cost-estimator",
-              env: "dev",
-              region: "us-east-1",
-              nodes: [{
-                id: "unit-cost-node",
-                kind,
-                props: {
-                  // Default props for estimation
-                  memory: 128,
-                  storage_gb: 1,
-                  requests: 100000,
-                  invocations: 100000
-                }
-              }]
-            };
-
-            const res = await fetch(API_URL, {
-              method: "POST",
-              headers,
-              body: JSON.stringify({ ir, cloud: "aws" }),
-              signal: controller.signal,
-              credentials: "include",
-            });
-            if (!res.ok)
-              throw new Error(
-                await res.text().catch(() => res.statusText)
-              );
-            const json = await res.json();
-            return [
-              service,
-              Number(json?.totalMonthlyCost ?? 0),
-            ] as const;
-          })
-        );
-
-        // merge into cache
-        const additions: Partial<Record<ServiceKey, number>> = {};
-        results.forEach((r, i) => {
-          const svc = missing[i];
-          additions[svc] = r.status === "fulfilled" ? r.value[1] : 0; // fallback 0 on error
-        });
-
-        if (cancelled) return;
-        setUnitCostCache((prev) => {
-          const merged = { ...prev, ...additions };
-          setCostItems(buildItems(merged)); // recompute with new cache
-          setCostLoading(false);
-          return merged;
-        });
-      } catch (e) {
-        if (!cancelled) {
-          console.warn("Cost fetch error", e);
-          // still show whatever we have cached
-          setCostItems(buildItems(unitCostCache));
-          setCostLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [canvasServiceCounts, unitCostCache]);
+  }, [canvasNodes]);
 
   const totalCost = useMemo(() => {
     if (!costItems) return 0;
@@ -439,13 +347,13 @@ export default function LeftPanel({
     // Debounce auto-save (wait 2 seconds after last change)
     autoSaveTimeoutRef.current = setTimeout(async () => {
       if (!canvasRef?.current) return;
-      
+
       try {
         // Get current payload
         const plan = canvasRef.current.getPlan();
         const payload = canvasRef.current.buildDeploymentPayload(plan);
         const payloadString = JSON.stringify(payload);
-        
+
         // Only save if payload actually changed
         if (lastSavedPayloadRef.current === payloadString) {
           return;
@@ -454,7 +362,7 @@ export default function LeftPanel({
         // Validate services are configured before auto-saving
         const { validateAllServices } = await import("./utils/service-validation");
         const allServices = canvasRef.current.getAllServices();
-        
+
         if (allServices.length === 0) {
           return; // Don't auto-save if no services
         }
@@ -472,7 +380,7 @@ export default function LeftPanel({
         const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
         if (!token) return;
 
-        const API_BASE = 
+        const API_BASE =
           typeof window === "undefined"
             ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
             : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
@@ -500,7 +408,7 @@ export default function LeftPanel({
           const savedPipeline = await res.json();
           lastSavedPayloadRef.current = payloadString;
           console.log("Pipeline auto-saved successfully");
-          
+
           // Refresh pipelines list
           const pipelinesRes = await fetch(`${API_BASE}/pipelines/`, {
             method: "GET",
@@ -537,7 +445,7 @@ export default function LeftPanel({
 
     // Always save directly - callback is just for notification
     const savedPipelineId = await savePipelineDirectly();
-    
+
     // Notify parent if callback provided
     if (onSavePipeline && savedPipelineId) {
       await onSavePipeline(projectName.trim(), savedPipelineId);
@@ -564,7 +472,7 @@ export default function LeftPanel({
       // Validate all services are configured
       const { validateAllServices } = await import("./utils/service-validation");
       const allServices = canvasRef.current.getAllServices();
-      
+
       if (allServices.length === 0) {
         alert("Please add at least one service to the canvas before saving.");
         setIsSaving(false);
@@ -602,7 +510,7 @@ export default function LeftPanel({
       const finalEnv = env;
       const finalRegion = region;
 
-      const API_BASE = 
+      const API_BASE =
         typeof window === "undefined"
           ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
           : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
@@ -622,7 +530,7 @@ export default function LeftPanel({
 
       // Use PATCH if pipeline exists, POST if new
       const isUpdate = currentPipelineId && currentPipelineId.trim().length > 0;
-      const url = isUpdate 
+      const url = isUpdate
         ? `${API_BASE}/pipelines/${currentPipelineId}`
         : `${API_BASE}/pipelines/`;
       const method = isUpdate ? "PATCH" : "POST";
@@ -647,13 +555,13 @@ export default function LeftPanel({
       const savedPipeline = await res.json();
       console.log("Pipeline saved successfully:", savedPipeline);
       console.log("Pipeline ID:", savedPipeline.id, "Type:", typeof savedPipeline.id);
-      
+
       // Update project name with saved name
       setProjectName(savedPipeline.name);
-      
+
       // Update last saved payload reference
       lastSavedPayloadRef.current = JSON.stringify(payload);
-      
+
       // Refresh pipelines list
       const pipelinesRes = await fetch(`${API_BASE}/pipelines/`, {
         method: "GET",
@@ -669,7 +577,7 @@ export default function LeftPanel({
       }
 
       setIsEditingName(false);
-      
+
       // Return pipeline ID for parent component (convert to string if needed)
       const pipelineId = typeof savedPipeline.id === 'string' ? savedPipeline.id : String(savedPipeline.id);
       return pipelineId;
@@ -743,13 +651,13 @@ export default function LeftPanel({
             </div>
           ) : (
             <>
-              <h2 
+              <h2
                 className="text-[15px] font-semibold text-slate-900 truncate flex-1 cursor-pointer hover:text-teal-700 transition-colors"
                 onClick={() => setIsEditingName(true)}
                 title="Click to edit pipeline name"
               >
-            {projectName}
-          </h2>
+                {projectName}
+              </h2>
               <button
                 onClick={() => setIsEditingName(true)}
                 className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-teal-700 transition-colors"
@@ -859,9 +767,9 @@ export default function LeftPanel({
                   leftAdornment={
                     <Dot className={
                       pipeline.status === "deployed" ? "bg-green-500" :
-                      pipeline.status === "deploying" ? "bg-yellow-500" :
-                      pipeline.status === "failed" ? "bg-red-500" :
-                      "bg-blue-500"
+                        pipeline.status === "deploying" ? "bg-yellow-500" :
+                          pipeline.status === "failed" ? "bg-red-500" :
+                            "bg-blue-500"
                     } />
                   }
                   onClick={() => onPipelineSelect?.(pipeline)}
@@ -1065,7 +973,7 @@ function Row({
   onClick?: () => void;
 }) {
   return (
-    <div 
+    <div
       className="group relative flex items-center gap-3 px-2.5 py-2 rounded-2xl cursor-pointer transition"
       onClick={onClick}
     >

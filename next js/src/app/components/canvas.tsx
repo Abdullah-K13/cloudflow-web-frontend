@@ -107,6 +107,16 @@ const AWS_SERVICES: ServiceItem[] = [
   { id: "dynamodb", label: "DynamoDB", img: "/aws-icons/DynamoDB.png" },
   { id: "cloudfront", label: "CloudFront", img: "/placeholder-gtzyx.png" },
   { id: "apigateway", label: "API Gateway", img: "/aws-api-gateway-icon.png" },
+  // New Services
+  { id: "ecs", label: "AWS ECS", img: "/aws-icons/ecs.png" },
+  { id: "ecr", label: "AWS ECR", img: "/aws-icons/ecr.png" },
+  { id: "secretsmanager", label: "Secrets Manager", img: "/aws-icons/secretsmanager.png" },
+  { id: "cognito", label: "Cognito", img: "/aws-icons/cognito.png" },
+  { id: "vpc", label: "AWS VPC", img: "/aws-icons/vpc.png" },
+  { id: "cloudwatch", label: "CloudWatch", img: "/aws-icons/cloudwatch.png" },
+  { id: "elasticache", label: "ElastiCache", img: "/aws-icons/elasticache.png" },
+  { id: "sfn", label: "Step Functions", img: "/aws-icons/stepfunctions.png" },
+  { id: "events_rule", label: "EventBridge Rule", img: "/aws-icons/eventbridge.png" },
 ];
 
 const GCP_SERVICES: ServiceItem[] = [
@@ -157,7 +167,9 @@ type ExtendedPlanNodeType =
   | "pubsub"
   | "cloud-run"
   | "secret-manager"
-  | "firestore";
+  | "firestore"
+  | "ec2"
+  | "rds";
 type PlanEdgeType = `${ExtendedPlanNodeType}_to_${ExtendedPlanNodeType}`;
 type PlanNode = { id: string; type: ExtendedPlanNodeType; name: string; props?: Record<string, any> };
 type PlanEdge = { type: PlanEdgeType; from: string; to: string; props?: Record<string, any> };
@@ -175,8 +187,8 @@ const TYPE_MAP: Record<string, ExtendedPlanNodeType> = {
   sfn: "sfn",
   events: "events_rule",
   "events.rule": "events_rule",
-  rds: "other",
-  ec2: "other",
+  rds: "rds",
+  ec2: "ec2",
   cloudfront: "other",
   // GCP Services
   "gcp-storage": "gcp-storage",
@@ -207,6 +219,16 @@ const KIND_MAP: Record<string, string> = {
   events_rule: "aws.events.rule",
   sfn: "aws.sfn",
   kinesis: "aws.kinesis",
+  ec2: "aws.ec2",
+  rds: "aws.rds",
+  ecs: "aws.ecs",
+  ecr: "aws.ecr",
+  secretsmanager: "aws.secretsmanager",
+  cognito: "aws.cognito",
+  vpc: "aws.vpc",
+  cloudwatch: "aws.cloudwatch",
+  elasticache: "aws.elasticache",
+  cloudfront: "aws.cloudfront",
   other: "aws.other",
   // GCP
   "gcp-storage": "gcp.storage",
@@ -217,7 +239,7 @@ const KIND_MAP: Record<string, string> = {
 };
 
 // friendly label (not used by backend payload now, but handy for debugging)
-function computeIntent(src: string, tgt: string): "notify" | "consume" | "invoke" | "read" | "write" | "deliver" | "access" {
+function computeIntent(src: string, tgt: string): "notify" | "consume" | "invoke" | "read" | "write" | "deliver" | "access" | "connect" | "pull" {
   // AWS S3
   if (src === "s3" && (tgt === "sqs" || tgt === "lambda" || tgt === "sns" || tgt === "events_rule")) return "notify";
   // AWS SNS
@@ -236,6 +258,19 @@ function computeIntent(src: string, tgt: string): "notify" | "consume" | "invoke
   if (src === "lambda" && tgt === "sfn") return "invoke";
   // AWS Kinesis
   if (src === "kinesis" && tgt === "lambda") return "consume";
+
+  // --- NEW INTENTS ---
+  // EC2 -> RDS/ElastiCache
+  if (src === "ec2" && (tgt === "rds" || tgt === "elasticache")) return "connect";
+  // ECS -> RDS/ElastiCache
+  if (src === "ecs" && (tgt === "rds" || tgt === "elasticache")) return "connect";
+  // Lambda -> Secrets Manager
+  if (src === "lambda" && tgt === "secretsmanager") return "read";
+  // ECS -> ECR
+  if (src === "ecs" && tgt === "ecr") return "pull";
+  // Lambda -> CloudWatch
+  if (src === "lambda" && tgt === "cloudwatch") return "write";
+
   // GCP Services
   // Storage → Pub/Sub
   if ((src === "gcp-storage" || src === "gcp.storage") && (tgt === "pubsub" || tgt === "gcp.pubsub")) return "notify";
@@ -246,6 +281,30 @@ function computeIntent(src: string, tgt: string): "notify" | "consume" | "invoke
   // Fallback
   return "notify";
 }
+
+// Connection Rules based on CAPABILITIES.md
+const CONNECTION_RULES: Record<string, string[]> = {
+  s3: ["sqs", "lambda", "sns", "events_rule"],
+  sns: ["lambda", "sqs"],
+  sqs: ["lambda"],
+  events_rule: ["lambda"],
+  apigateway: ["lambda"],
+  lambda: ["dynamodb", "sfn", "secretsmanager", "cloudwatch"],
+  dynamodb: ["lambda"],
+  kinesis: ["lambda"],
+  ec2: ["rds", "elasticache"],
+  ecs: ["rds", "elasticache", "ecr"],
+  // GCP
+  "gcp-storage": ["pubsub"],
+  pubsub: ["cloud-run"],
+  "cloud-run": ["secret-manager"],
+};
+
+const isValidConnection = (src: string, tgt: string): boolean => {
+  // Normalize types if needed (e.g. remove 'aws.' prefix if present in internal types, though here we use internal IDs)
+  const allowed = CONNECTION_RULES[src];
+  return allowed ? allowed.includes(tgt) : false;
+};
 
 // minimal props normalization for UI → payload mapping
 function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
@@ -307,6 +366,71 @@ function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
     return {
       shards: d.shards ?? 1,
       physicalName: d.physicalName ?? undefined,
+    };
+  }
+  // --- NEW SERVICES ---
+  if (kind === "aws.ec2") {
+    return {
+      instanceType: d.instanceType || "t3.micro",
+      ami: d.ami || undefined,
+      physicalName: d.physicalName ?? undefined,
+    };
+  }
+  if (kind === "aws.rds") {
+    return {
+      engine: d.engine || "postgres",
+      instanceClass: d.dbClass || "db.t3.micro",
+      allocatedStorage: Number(d.storage || 20),
+      multiAZ: !!d.multiAZ,
+      physicalName: d.dbIdentifier ?? undefined,
+    };
+  }
+  if (kind === "aws.ecs") {
+    return {
+      launchType: d.launchType || "FARGATE",
+      physicalName: d.clusterName ?? undefined,
+    };
+  }
+  if (kind === "aws.ecr") {
+    return {
+      physicalName: d.repositoryName ?? undefined,
+    };
+  }
+  if (kind === "aws.secretsmanager") {
+    return {
+      physicalName: d.secretName ?? undefined,
+      description: d.description ?? undefined,
+    };
+  }
+  if (kind === "aws.cognito") {
+    return {
+      physicalName: d.userPoolName ?? undefined,
+    };
+  }
+  if (kind === "aws.vpc") {
+    return {
+      cidr: d.cidrBlock || "10.0.0.0/16",
+      physicalName: d.vpcName ?? undefined,
+    };
+  }
+  if (kind === "aws.cloudwatch") {
+    return {
+      retention: Number(d.retentionDays || 30),
+      physicalName: d.logGroupName ?? undefined,
+    };
+  }
+  if (kind === "aws.elasticache") {
+    return {
+      engine: d.engine || "redis",
+      nodeType: d.nodeType || "cache.t3.micro",
+      numCacheNodes: Number(d.numCacheNodes || 1),
+      physicalName: d.clusterId ?? undefined,
+    };
+  }
+  if (kind === "aws.cloudfront") {
+    return {
+      priceClass: d.priceClass || "PriceClass_100",
+      physicalName: d.distributionId ?? undefined,
     };
   }
   // GCP Services
@@ -404,13 +528,31 @@ const CanvasInner = (
   }, [items, setNodes]);
 
   useEffect(() => {
-    onCanvasNodesChange?.(nodes.map((n) => ({ id: n.id, type: String(n.type) })));
+    onCanvasNodesChange?.(nodes.map((n) => ({
+      id: n.id,
+      type: String(n.type),
+      data: {
+        cost: (n.data as any).cost,
+        label: (n.data as any).label
+      }
+    })));
   }, [nodes, onCanvasNodesChange]);
 
   const onConnect = useCallback(
-    (params: Connection | Edge) =>
-      setEdges((eds) => addEdge({ ...params, type: "bezier", markerEnd: { type: MarkerType.ArrowClosed } }, eds)),
-    [setEdges]
+    (params: Connection | Edge) => {
+      const srcNode = nodes.find((n) => n.id === params.source);
+      const tgtNode = nodes.find((n) => n.id === params.target);
+      const srcType = String(srcNode?.type);
+      const tgtType = String(tgtNode?.type);
+
+      if (!isValidConnection(srcType, tgtType)) {
+        alert(`Invalid connection: ${srcNode?.data.label} cannot connect to ${tgtNode?.data.label}.\n\nRefer to CAPABILITIES.md for valid connections.`);
+        return;
+      }
+
+      setEdges((eds) => addEdge({ ...params, type: "bezier", markerEnd: { type: MarkerType.ArrowClosed } }, eds));
+    },
+    [setEdges, nodes]
   );
 
   const onNodeDrag = useCallback(
@@ -495,42 +637,87 @@ const CanvasInner = (
   const fetchNodeCost = async (node: Node) => {
     try {
       const svc = (node.data as any).service;
-      const kind = KIND_MAP[node.type as ExtendedPlanNodeType] || "aws.other";
-      const props = normalizeToDesiredProps(kind, svc.config);
+      // Map node type to service name for pricing API
+      // The pricing API expects simple names like "lambda", "s3", "vm"
+      // We can derive this from the node type or KIND_MAP
+      let serviceName = String(node.type);
 
-      // Construct a mini IR for just this node
-      const miniIr = {
-        project: "canvas-project",
-        env: "dev",
-        region: "us-east-1",
-        nodes: [{ id: node.id, kind, props }]
+      // Normalize service names to match pricing API expectations
+      if (serviceName.startsWith("aws.")) serviceName = serviceName.replace("aws.", "");
+      if (serviceName.startsWith("gcp.")) serviceName = serviceName.replace("gcp.", "");
+
+      // Manual mapping for some services if needed
+      const typeMap: Record<string, string> = {
+        "gcp-storage": "cloud_storage",
+        "pubsub": "pubsub",
+        "cloud-run": "cloud_run",
+        "secret-manager": "secret_manager",
+        "firestore": "firestore",
+        "rds": "rds",
+        "lambda": "lambda",
+        "s3": "s3",
+        "ec2": "ec2",
+        "dynamodb": "dynamodb",
+        "sqs": "sqs",
+        "sns": "sns",
+        "apigateway": "apigw",
+        "kinesis": "kinesis",
+        "sfn": "sfn",
+        "events_rule": "events",
+        "cloudfront": "cloudfront",
+        "ecs": "ecs",
+        "ecr": "ecr",
+        "secretsmanager": "secretsmanager",
+        "cognito": "cognito",
+        "vpc": "vpc",
+        "cloudwatch": "cloudwatch",
+        "elasticache": "elasticache"
       };
 
-      const res = await fetch(`${API_BASE}/cost-optimization/analyze`, {
+      const apiService = typeMap[serviceName] || serviceName;
+
+      // Prepare config
+      // We mix normalized props and raw config to ensure we capture everything
+      const kind = KIND_MAP[node.type as ExtendedPlanNodeType] || "aws.other";
+      const normalizedProps = normalizeToDesiredProps(kind, svc.config);
+      const config = { ...svc.config, ...normalizedProps };
+
+      const res = await fetch(`${API_BASE}/cost-optimization/price`, {
         method: "POST",
         headers: getHeaders(true),
-        body: JSON.stringify({ ir: miniIr, cloud: provider })
+        body: JSON.stringify({
+          service: apiService,
+          cloud: provider,
+          region: svc.config.region || (provider === "gcp" ? "us-central1" : "us-east-1"),
+          config: config
+        })
       });
 
       if (res.ok) {
         const data = await res.json();
-        // Extract cost from the response (assuming the backend returns currentCost in suggestions or we need a separate pricing endpoint)
-        // For now, let's assume we can get it from the first suggestion's currentCost if available, 
-        // OR we should really add a 'calculate_cost' endpoint. 
-        // FALLBACK: Use a default or parse from suggestion if it exists.
-        // A better approach: The backend 'analyze' returns suggestions. 
-        // We might need to add a 'cost' field to the response of analyze or use a dedicated pricing endpoint.
-        // Let's assume for this task we use the 'currentCost' from a dummy suggestion or similar.
-        // Actually, let's use the 'total_monthly_cost' if we modify the backend to return it.
-        // I'll assume the backend returns { suggestions: [], totalMonthlyCost: 123.45 }
-        if (data.totalMonthlyCost !== undefined) {
-          setNodes(nds => nds.map(n => n.id === node.id ? { ...n, data: { ...n.data, cost: data.totalMonthlyCost } } : n));
+        if (data.price !== undefined) {
+          setNodes(nds => nds.map(n => n.id === node.id ? { ...n, data: { ...n.data, cost: data.price } } : n));
         }
       }
     } catch (e) {
       console.error("Failed to fetch cost", e);
     }
   };
+
+  // Recalculate total cost whenever nodes change
+  useEffect(() => {
+    const total = nodes.reduce((sum, node) => sum + ((node.data as any).cost || 0), 0);
+    setTotalSavings(total); // Reusing setTotalSavings state for total cost for now, or we should add a new state
+  }, [nodes]);
+
+  // We need a separate state for Total Monthly Cost vs Total Savings (from optimization)
+  // Let's add one.
+  const [currentTotalCost, setCurrentTotalCost] = useState(0);
+
+  useEffect(() => {
+    const total = nodes.reduce((sum, node) => sum + ((node.data as any).cost || 0), 0);
+    setCurrentTotalCost(total);
+  }, [nodes]);
 
   const handleRequirementsSubmit = async (requirements: any) => {
     setIsAnalyzing(true);
@@ -563,9 +750,6 @@ const CanvasInner = (
         setTotalSavings(data.totalSavings);
         setIsRequirementsOpen(false);
         setIsResultsOpen(true);
-
-        // Update node costs if available
-        // This would require mapping back to nodes
       }
     } catch (e) {
       alert("Optimization analysis failed");
@@ -589,7 +773,15 @@ const CanvasInner = (
 
   const handleUpdateFromPanel = (svc: ServiceItem) => {
     if (!activeNodeId) return;
-    setNodes((nds) => nds.map((n) => (n.id === activeNodeId ? { ...n, data: { ...(n.data || {}), service: svc } } : n)));
+    setNodes((nds) => nds.map((n) => {
+      if (n.id === activeNodeId) {
+        const updatedNode = { ...n, data: { ...(n.data || {}), service: svc } };
+        // Trigger cost fetch
+        fetchNodeCost(updatedNode as any);
+        return updatedNode;
+      }
+      return n;
+    }));
   };
 
   const handleDeleteFromPanel = (serviceId: string) => {
@@ -597,6 +789,7 @@ const CanvasInner = (
     setNodes((nds) => nds.filter((n) => n.id !== idToRemove));
     closePanel();
   };
+
 
   /* ----------------- existing plan builder (kept) ----------------- */
   const buildPlan = useCallback((): Plan => {
@@ -1381,7 +1574,7 @@ const CanvasInner = (
   }, [currentServices, search]);
 
   return (
-    <div className="w-full h-full flex min-h-0">
+    <div className="w-full h-screen flex min-h-0">
       {/* Canvas area */}
       <div className="flex-1 relative" ref={reactFlowWrapper}>
         <ReactFlow
@@ -1443,13 +1636,65 @@ const CanvasInner = (
         onApply={(id) => alert(`Applying suggestion ${id} (Implementation coming soon)`)}
       />
 
+      {/* Total Cost Panel */}
+      <div className="absolute bottom-6 left-6 z-10 bg-white/90 backdrop-blur border border-gray-200 rounded-xl shadow-lg p-4 w-64">
+        <div className="flex items-center gap-2 text-slate-500 mb-1">
+          <DollarSign size={16} />
+          <span className="text-xs font-semibold uppercase tracking-wider">Total Monthly Cost</span>
+        </div>
+        <div className="text-2xl font-bold text-slate-800">
+          ${currentTotalCost.toFixed(2)}
+        </div>
+        <div className="text-xs text-slate-400 mt-1">
+          Estimated based on configuration
+        </div>
+      </div>
+
       {/* ===== New Right-side Palette Panel ================================== */}
       <aside
-        className="w-[320px] shrink-0 border-l border-gray-200 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60 flex flex-col h-full min-h-0"
+        className="w-[320px] shrink-0 border-l border-gray-200 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60 flex flex-col h-full overflow-hidden"
         aria-label="Cloud services palette"
       >
-        {/* Actions */}
-        <div className="p-3 border-t border-gray-200 space-y-2">
+        {/* Provider switcher */}
+        <div className="p-3 border-b border-gray-200 shrink-0">
+          <div className="text-sm font-semibold text-slate-700 mb-2">Cloud Provider</div>
+          <div className="grid grid-cols-3 rounded-xl overflow-hidden border border-gray-200">
+            {(["aws", "gcp", "azure"] as Provider[]).map((p) => {
+              const active = provider === p;
+              return (
+                <button
+                  key={p}
+                  onClick={() => setProvider(p)}
+                  className={[
+                    "px-3 py-2 text-sm font-medium transition-all",
+                    active
+                      ? p === "aws"
+                        ? "bg-orange-500/90 text-white"
+                        : p === "gcp"
+                          ? "bg-teal-600/90 text-white"
+                          : "bg-sky-600/90 text-white"
+                      : "bg-white text-slate-700 hover:bg-slate-50",
+                  ].join(" ")}
+                >
+                  {p.toUpperCase()}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Search */}
+          <div className="mt-3">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search services…"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-4 focus:ring-teal-200/60"
+            />
+          </div>
+        </div>
+
+        {/* Actions - Fixed at top, scrollable if needed */}
+        <div className="p-3 border-b border-gray-200 space-y-2 shrink-0 max-h-[35vh] overflow-y-auto">
           {/* Optimization Button */}
           <button
             onClick={() => setIsRequirementsOpen(true)}
@@ -1653,47 +1898,32 @@ const CanvasInner = (
               </>
             )}
           </div>
-          {/* Provider switcher */}
-          <div className="p-3 border-b border-gray-200">
-            <div className="text-sm font-semibold text-slate-700 mb-2">Cloud Provider</div>
-            <div className="grid grid-cols-3 rounded-xl overflow-hidden border border-gray-200">
-              {(["aws", "gcp", "azure"] as Provider[]).map((p) => {
-                const active = provider === p;
-                return (
-                  <button
-                    key={p}
-                    onClick={() => setProvider(p)}
-                    className={[
-                      "px-3 py-2 text-sm font-medium transition-all",
-                      active
-                        ? p === "aws"
-                          ? "bg-orange-500/90 text-white"
-                          : p === "gcp"
-                            ? "bg-teal-600/90 text-white"
-                            : "bg-sky-600/90 text-white"
-                        : "bg-white text-slate-700 hover:bg-slate-50",
-                    ].join(" ")}
-                  >
-                    {p.toUpperCase()}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Search */}
-            <div className="mt-3">
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search services…"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-4 focus:ring-teal-200/60"
-              />
-            </div>
-          </div>
         </div>
 
-        {/* Services list */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
+        {/* Services list - Scrollable */}
+        <div className="relative flex-1 min-h-0 overflow-y-auto p-3 space-y-2" id="serviceScrollArea">
+
+          {/* Scroll buttons */}
+          <button
+            onClick={() => {
+              const container = document.getElementById("serviceScrollArea");
+              container?.scrollBy({ top: -100, behavior: "smooth" });
+            }}
+            className="absolute top-2 right-2 z-10 bg-white border border-gray-200 rounded-full p-1 shadow hover:bg-gray-50"
+          >
+            ↑
+          </button>
+
+          <button
+            onClick={() => {
+              const container = document.getElementById("serviceScrollArea");
+              container?.scrollBy({ top: 100, behavior: "smooth" });
+            }}
+            className="absolute bottom-2 right-2 z-10 bg-white border border-gray-200 rounded-full p-1 shadow hover:bg-gray-50"
+          >
+            ↓
+          </button>
+
           {filteredServices.map((service) => (
             <div
               key={`${provider}-${service.id}-${service.label}`}
@@ -1720,7 +1950,6 @@ const CanvasInner = (
             <div className="text-sm text-slate-500 py-6 text-center">No services match your search.</div>
           )}
         </div>
-
 
       </aside>
 
