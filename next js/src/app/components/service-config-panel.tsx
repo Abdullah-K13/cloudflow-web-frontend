@@ -36,6 +36,7 @@ const getServiceKey = (svc: { id?: string; label?: string }) => {
   const base = raw.split("-")[0].split("_")[0].split(":")[0].replace(/\s+/g, "");
   if (base.startsWith("aws")) return base.slice(3);
   if (base.startsWith("gcp")) return base.slice(3);
+  if (base.startsWith("azure.")) return base.slice(6); // Remove "azure." prefix
   // Handle GCP service IDs
   if (base === "gcp-storage" || base === "storage") return "gcpstorage";
   if (base === "pubsub") return "gcppubsub";
@@ -124,6 +125,65 @@ const defaultDetailsFor = (service: { id?: string; label?: string }) => {
         locationId: "us-central",
         databaseId: "(default)",
       };
+    // Azure Services
+    case "storage":
+      return {
+        accountKind: "StorageV2",
+        sku: "Standard_LRS",
+        containerName: "",
+      };
+    case "servicebus":
+      return {
+        sku: "Basic",
+        queueName: "",
+        partition: false,
+      };
+    case "containerapp":
+      return {
+        image: "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest",
+        cpu: 0.25,
+        memory: "0.5Gi",
+        env: {},
+      };
+    case "vm":
+      return {
+        vmSize: "Standard_B1s",
+        adminUsername: "azureuser",
+        adminPassword: "",
+        osType: "Linux",
+      };
+    case "functionapp":
+      return {
+        sku: "Y1",
+      };
+    case "sql":
+      return {
+        databaseName: "",
+        sku: { name: "S0", tier: "Standard" },
+      };
+    case "cosmosdb":
+      return {
+        databaseName: "",
+        containerName: "",
+        partitionKey: "/id",
+      };
+    case "apimanagement":
+      return {
+        publisherName: "Contoso",
+        publisherEmail: "admin@contoso.com",
+        sku: "Developer",
+      };
+    case "keyvault":
+      return {
+        tenantId: "",
+      };
+    case "appinsights":
+      return {};
+    case "vnet":
+      return {
+        addressSpaces: ["10.0.0.0/16"],
+        subnets: [{ name: "default", addressPrefix: "10.0.1.0/24" }],
+      };
     default:
       return {};
   }
@@ -153,6 +213,37 @@ function validate(serviceLabel: string, cfg: ServiceConfig): Errors {
   }
   if (serviceLabel === "GCP Firestore") {
     if (!d.locationId?.trim()) e.locationId = "Location ID is required";
+  }
+  // Azure Services Validation
+  if (serviceLabel === "Azure Service Bus") {
+    if (!d.queueName?.trim()) e.queueName = "Queue name is required";
+  }
+  if (serviceLabel === "Azure Container Apps") {
+    if (!d.image?.trim()) e.image = "Container image is required";
+  }
+  if (serviceLabel === "Azure Virtual Machine") {
+    if (!d.adminUsername?.trim()) e.adminUsername = "Admin username is required";
+    if (!d.adminPassword?.trim()) e.adminPassword = "Admin password is required";
+  }
+  if (serviceLabel === "Azure SQL Database") {
+    if (!d.databaseName?.trim()) e.databaseName = "Database name is required";
+  }
+  if (serviceLabel === "Azure Cosmos DB") {
+    if (!d.databaseName?.trim()) e.databaseName = "Database name is required";
+    if (!d.containerName?.trim()) e.containerName = "Container name is required";
+  }
+  if (serviceLabel === "Azure API Management") {
+    if (!d.publisherName?.trim()) e.publisherName = "Publisher name is required";
+    if (!d.publisherEmail?.trim()) e.publisherEmail = "Publisher email is required";
+    if (d.publisherEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.publisherEmail)) {
+      e.publisherEmail = "Invalid email format";
+    }
+  }
+  if (serviceLabel === "Azure Key Vault") {
+    if (!d.tenantId?.trim()) e.tenantId = "Tenant ID is required";
+    if (d.tenantId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(d.tenantId)) {
+      e.tenantId = "Tenant ID must be a valid UUID";
+    }
   }
   return e;
 }
@@ -1355,6 +1446,488 @@ export default function ServiceConfigPanel({
                 />
                 <p className="mt-1 text-xs text-slate-500">
                   Database ID. Use "(default)" for the default database.
+                </p>
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      // Azure Services
+      case "Azure Storage":
+        return (
+          <SectionCard
+            title="Storage Account Settings"
+            icon={<img src="/azure-icons/10086-icon-service-Storage-Accounts.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>Account Kind</Label>
+                <SelectInput
+                  id="accountKind"
+                  value={d.accountKind || "StorageV2"}
+                  onChange={(e) => updateDetails({ accountKind: e.target.value })}
+                  options={[
+                    { value: "StorageV2", label: "StorageV2 (General Purpose v2)" },
+                    { value: "Storage", label: "Storage (General Purpose v1)" },
+                    { value: "BlobStorage", label: "BlobStorage" },
+                  ]}
+                />
+              </div>
+              <div>
+                <Label>SKU</Label>
+                <SelectInput
+                  id="sku"
+                  value={d.sku || "Standard_LRS"}
+                  onChange={(e) => updateDetails({ sku: e.target.value })}
+                  options={[
+                    { value: "Standard_LRS", label: "Standard_LRS (Locally Redundant)" },
+                    { value: "Standard_GRS", label: "Standard_GRS (Geo-Redundant)" },
+                    { value: "Standard_RAGRS", label: "Standard_RAGRS (Read-Access Geo-Redundant)" },
+                    { value: "Premium_LRS", label: "Premium_LRS (Premium Locally Redundant)" },
+                  ]}
+                />
+              </div>
+              <div>
+                <Label>Container Name (Optional)</Label>
+                <TextInput
+                  id="containerName"
+                  value={d.containerName || ""}
+                  onChange={(e) => updateDetails({ containerName: e.target.value })}
+                  placeholder="uploads"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Optional blob container name. Leave empty to skip container creation.
+                </p>
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "Azure Service Bus":
+        return (
+          <SectionCard
+            title="Service Bus Settings"
+            icon={<img src="/azure-icons/10836-icon-service-Azure-Service-Bus.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>SKU</Label>
+                <SelectInput
+                  id="sku"
+                  value={d.sku || "Basic"}
+                  onChange={(e) => updateDetails({ sku: e.target.value })}
+                  options={[
+                    { value: "Basic", label: "Basic" },
+                    { value: "Standard", label: "Standard" },
+                    { value: "Premium", label: "Premium" },
+                  ]}
+                />
+              </div>
+              <div>
+                <Label>Queue Name</Label>
+                <TextInput
+                  id="queueName"
+                  value={d.queueName || ""}
+                  onChange={(e) => updateDetails({ queueName: e.target.value })}
+                  placeholder="tasks"
+                  error={errors.queueName}
+                />
+                <FieldError id="queueName-error" message={errors.queueName} />
+              </div>
+              <div>
+                <Checkbox
+                  checked={!!d.partition}
+                  onChange={(e) => updateDetails({ partition: e.target.checked })}
+                  label="Enable Partitioning"
+                />
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "Azure Container Apps":
+        return (
+          <SectionCard
+            title="Container App Settings"
+            icon={<img src="/azure-icons/02989-icon-service-Container-Apps-Environments.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>Container Image</Label>
+                <TextInput
+                  id="image"
+                  value={d.image || "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"}
+                  onChange={(e) => updateDetails({ image: e.target.value })}
+                  placeholder="mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
+                  error={errors.image}
+                />
+                <FieldError id="image-error" message={errors.image} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>CPU</Label>
+                  <NumberInput
+                    id="cpu"
+                    value={d.cpu || 0.25}
+                    onChange={(e) => updateDetails({ cpu: parseFloat(e.target.value) || 0.25 })}
+                    min={0.25}
+                    max={4}
+                    step={0.25}
+                  />
+                </div>
+                <div>
+                  <Label>Memory</Label>
+                  <SelectInput
+                    id="memory"
+                    value={d.memory || "0.5Gi"}
+                    onChange={(e) => updateDetails({ memory: e.target.value })}
+                    options={[
+                      { value: "0.5Gi", label: "0.5 Gi" },
+                      { value: "1Gi", label: "1 Gi" },
+                      { value: "2Gi", label: "2 Gi" },
+                      { value: "4Gi", label: "4 Gi" },
+                    ]}
+                  />
+                </div>
+              </div>
+              <div>
+                <Label>Environment Variables (JSON)</Label>
+                <textarea
+                  id="env"
+                  value={typeof d.env === "object" ? JSON.stringify(d.env, null, 2) : ""}
+                  onChange={(e) => {
+                    try {
+                      const parsed = JSON.parse(e.target.value);
+                      updateDetails({ env: parsed });
+                    } catch {
+                      updateDetails({ env: {} });
+                    }
+                  }}
+                  rows={4}
+                  className={baseInputClass(undefined) + " resize-none font-mono text-xs"}
+                  placeholder='{"LOG_LEVEL": "info", "API_KEY": "value"}'
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Enter environment variables as JSON object.
+                </p>
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "Azure Virtual Machine":
+        return (
+          <SectionCard
+            title="Virtual Machine Settings"
+            icon={<img src="/azure-icons/10021-icon-service-Virtual-Machine.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>VM Size</Label>
+                <TextInput
+                  id="vmSize"
+                  value={d.vmSize || "Standard_B1s"}
+                  onChange={(e) => updateDetails({ vmSize: e.target.value })}
+                  placeholder="Standard_B1s"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Common sizes: Standard_B1s, Standard_B2s, Standard_D2s_v3
+                </p>
+              </div>
+              <div>
+                <Label>OS Type</Label>
+                <SelectInput
+                  id="osType"
+                  value={d.osType || "Linux"}
+                  onChange={(e) => updateDetails({ osType: e.target.value })}
+                  options={[
+                    { value: "Linux", label: "Linux" },
+                    { value: "Windows", label: "Windows" },
+                  ]}
+                />
+              </div>
+              <div>
+                <Label>Admin Username</Label>
+                <TextInput
+                  id="adminUsername"
+                  value={d.adminUsername || "azureuser"}
+                  onChange={(e) => updateDetails({ adminUsername: e.target.value })}
+                  placeholder="azureuser"
+                  error={errors.adminUsername}
+                />
+                <FieldError id="adminUsername-error" message={errors.adminUsername} />
+              </div>
+              <div>
+                <Label>Admin Password</Label>
+                <TextInput
+                  id="adminPassword"
+                  type="password"
+                  value={d.adminPassword || ""}
+                  onChange={(e) => updateDetails({ adminPassword: e.target.value })}
+                  placeholder="Secure password"
+                  error={errors.adminPassword}
+                />
+                <FieldError id="adminPassword-error" message={errors.adminPassword} />
+                <p className="mt-1 text-xs text-slate-500">
+                  Password must meet Azure requirements (12+ chars, complexity).
+                </p>
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "Azure Function App":
+        return (
+          <SectionCard
+            title="Function App Settings"
+            icon={<img src="/azure-icons/10029-icon-service-Function-Apps.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>SKU</Label>
+                <SelectInput
+                  id="sku"
+                  value={d.sku || "Y1"}
+                  onChange={(e) => updateDetails({ sku: e.target.value })}
+                  options={[
+                    { value: "Y1", label: "Y1 (Consumption Plan)" },
+                    { value: "EP1", label: "EP1 (Premium Plan)" },
+                    { value: "EP2", label: "EP2 (Premium Plan)" },
+                    { value: "EP3", label: "EP3 (Premium Plan)" },
+                  ]}
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Y1 is the Consumption plan (pay-per-use). EP plans are Premium (dedicated).
+                </p>
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "Azure SQL Database":
+        return (
+          <SectionCard
+            title="SQL Database Settings"
+            icon={<img src="/azure-icons/10130-icon-service-SQL-Database.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>Database Name</Label>
+                <TextInput
+                  id="databaseName"
+                  value={d.databaseName || ""}
+                  onChange={(e) => updateDetails({ databaseName: e.target.value })}
+                  placeholder="appdb"
+                  error={errors.databaseName}
+                />
+                <FieldError id="databaseName-error" message={errors.databaseName} />
+              </div>
+              <div>
+                <Label>Service Tier</Label>
+                <SelectInput
+                  id="serviceTier"
+                  value={d.sku?.name || d.serviceTier || "S0"}
+                  onChange={(e) => updateDetails({ sku: { name: e.target.value, tier: "Standard" }, serviceTier: e.target.value })}
+                  options={[
+                    { value: "Basic", label: "Basic" },
+                    { value: "S0", label: "S0 (Standard)" },
+                    { value: "S1", label: "S1 (Standard)" },
+                    { value: "S2", label: "S2 (Standard)" },
+                    { value: "S3", label: "S3 (Standard)" },
+                    { value: "P1", label: "P1 (Premium)" },
+                    { value: "P2", label: "P2 (Premium)" },
+                    { value: "P4", label: "P4 (Premium)" },
+                  ]}
+                />
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "Azure Cosmos DB":
+        return (
+          <SectionCard
+            title="Cosmos DB Settings"
+            icon={<img src="/azure-icons/10121-icon-service-Azure-Cosmos-DB.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>Database Name</Label>
+                <TextInput
+                  id="databaseName"
+                  value={d.databaseName || ""}
+                  onChange={(e) => updateDetails({ databaseName: e.target.value })}
+                  placeholder="appdb"
+                  error={errors.databaseName}
+                />
+                <FieldError id="databaseName-error" message={errors.databaseName} />
+              </div>
+              <div>
+                <Label>Container Name</Label>
+                <TextInput
+                  id="containerName"
+                  value={d.containerName || ""}
+                  onChange={(e) => updateDetails({ containerName: e.target.value })}
+                  placeholder="users"
+                  error={errors.containerName}
+                />
+                <FieldError id="containerName-error" message={errors.containerName} />
+              </div>
+              <div>
+                <Label>Partition Key</Label>
+                <TextInput
+                  id="partitionKey"
+                  value={d.partitionKey || "/id"}
+                  onChange={(e) => updateDetails({ partitionKey: e.target.value })}
+                  placeholder="/id"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Partition key path (e.g., "/id", "/userId").
+                </p>
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "Azure API Management":
+        return (
+          <SectionCard
+            title="API Management Settings"
+            icon={<img src="/azure-icons/10042-icon-service-API-Management-Services.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>Publisher Name</Label>
+                <TextInput
+                  id="publisherName"
+                  value={d.publisherName || "Contoso"}
+                  onChange={(e) => updateDetails({ publisherName: e.target.value })}
+                  placeholder="Contoso"
+                  error={errors.publisherName}
+                />
+                <FieldError id="publisherName-error" message={errors.publisherName} />
+              </div>
+              <div>
+                <Label>Publisher Email</Label>
+                <TextInput
+                  id="publisherEmail"
+                  type="email"
+                  value={d.publisherEmail || "admin@contoso.com"}
+                  onChange={(e) => updateDetails({ publisherEmail: e.target.value })}
+                  placeholder="admin@contoso.com"
+                  error={errors.publisherEmail}
+                />
+                <FieldError id="publisherEmail-error" message={errors.publisherEmail} />
+              </div>
+              <div>
+                <Label>SKU</Label>
+                <SelectInput
+                  id="sku"
+                  value={d.sku || "Developer"}
+                  onChange={(e) => updateDetails({ sku: e.target.value })}
+                  options={[
+                    { value: "Developer", label: "Developer" },
+                    { value: "Basic", label: "Basic" },
+                    { value: "Standard", label: "Standard" },
+                    { value: "Premium", label: "Premium" },
+                    { value: "Consumption", label: "Consumption" },
+                  ]}
+                />
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "Azure Key Vault":
+        return (
+          <SectionCard
+            title="Key Vault Settings"
+            icon={<img src="/azure-icons/10245-icon-service-Key-Vaults.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>Tenant ID</Label>
+                <TextInput
+                  id="tenantId"
+                  value={d.tenantId || ""}
+                  onChange={(e) => updateDetails({ tenantId: e.target.value })}
+                  placeholder="00000000-0000-0000-0000-000000000000"
+                  error={errors.tenantId}
+                />
+                <FieldError id="tenantId-error" message={errors.tenantId} />
+                <p className="mt-1 text-xs text-slate-500">
+                  Azure tenant ID (UUID format). Required for Key Vault.
+                </p>
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "Azure Application Insights":
+        return (
+          <SectionCard
+            title="Application Insights Settings"
+            icon={<img src="/azure-icons/00012-icon-service-Application-Insights.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div className="text-sm text-slate-600">
+                Application Insights uses default settings. No additional configuration required.
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "Azure Virtual Network":
+        return (
+          <SectionCard
+            title="Virtual Network Settings"
+            icon={<img src="/azure-icons/10061-icon-service-Virtual-Networks.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>Address Spaces (JSON Array)</Label>
+                <textarea
+                  id="addressSpaces"
+                  value={Array.isArray(d.addressSpaces) ? JSON.stringify(d.addressSpaces, null, 2) : '["10.0.0.0/16"]'}
+                  onChange={(e) => {
+                    try {
+                      const parsed = JSON.parse(e.target.value);
+                      if (Array.isArray(parsed)) {
+                        updateDetails({ addressSpaces: parsed });
+                      }
+                    } catch {
+                      updateDetails({ addressSpaces: ["10.0.0.0/16"] });
+                    }
+                  }}
+                  rows={3}
+                  className={baseInputClass(undefined) + " resize-none font-mono text-xs"}
+                  placeholder='["10.0.0.0/16"]'
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Array of CIDR blocks (e.g., ["10.0.0.0/16"]).
+                </p>
+              </div>
+              <div>
+                <Label>Subnets (JSON Array)</Label>
+                <textarea
+                  id="subnets"
+                  value={Array.isArray(d.subnets) ? JSON.stringify(d.subnets, null, 2) : '[{"name": "default", "addressPrefix": "10.0.1.0/24"}]'}
+                  onChange={(e) => {
+                    try {
+                      const parsed = JSON.parse(e.target.value);
+                      if (Array.isArray(parsed)) {
+                        updateDetails({ subnets: parsed });
+                      }
+                    } catch {
+                      updateDetails({ subnets: [{ name: "default", addressPrefix: "10.0.1.0/24" }] });
+                    }
+                  }}
+                  rows={6}
+                  className={baseInputClass(undefined) + " resize-none font-mono text-xs"}
+                  placeholder='[{"name": "subnet1", "addressPrefix": "10.0.1.0/24"}]'
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Array of subnet objects with "name" and "addressPrefix" properties.
                 </p>
               </div>
             </div>

@@ -248,7 +248,7 @@ export default function DashboardClient({
               {recentArchitectures.map((arch) => (
                 <Link
                   key={arch.id}
-                  href={`/workplace?pipeline=${arch.id}`}
+                  href={`/pipelines/${arch.id}/builder`}
                   className="block rounded-lg border border-transparent bg-gray-50 p-3 transition-all duration-200 hover:border-orange-200 hover:bg-orange-50"
                 >
                   <h3 className="mb-1 font-medium text-gray-800">

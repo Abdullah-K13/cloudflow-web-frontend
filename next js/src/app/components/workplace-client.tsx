@@ -27,16 +27,17 @@ interface DraggedItem {
   img: string;
 }
 
-export default function WorkplaceClient() {
+export default function WorkplaceClient({ pipelineId: propPipelineId }: { pipelineId?: string } = {}) {
   const [items, setItems] = useState<ServiceItem[]>([]);
   const [draggedItem, setDraggedItem] = useState<DraggedItem | null>(null);
   const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
-  const [isClient, setIsClient] = useState(false);
+  const [isClient, setIsClient] = useState(typeof window !== "undefined");
   const [idCounter, setIdCounter] = useState(0);
   const [selectedService, setSelectedService] = useState<ServiceItem | null>(null);
   const [showDeleteZone, setShowDeleteZone] = useState(false);
   const [isDraggingExisting, setIsDraggingExisting] = useState(false);
   const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState(false);
+  const sidebarRenderedRef = useRef(false);
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [selectedForCost, setSelectedForCost] = useState<{ id: string; type: string }[]>([]);
@@ -47,6 +48,8 @@ export default function WorkplaceClient() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showUnsavedModal, setShowUnsavedModal] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
+  const [initialEdges, setInitialEdges] = useState<Array<{ from: string; to: string }>>([]);
+  const [initialProvider, setInitialProvider] = useState<"aws" | "gcp" | "azure" | undefined>(undefined);
   const canvasRef = useRef<{ getPlan: () => any; getPrompt: () => string; buildDeploymentPayload: (plan: any) => any; getProvider: () => "aws" | "gcp" | "azure"; getAllServices: () => any[] } | null>(null);
 
   // Track unsaved changes - check if there are services on canvas
@@ -78,12 +81,188 @@ export default function WorkplaceClient() {
   useEffect(() => {
     setIsClient(true);
 
-    // Check if this is a new pipeline (no saved pipeline ID in URL or state)
+    // Check if this is a new pipeline (no saved pipeline ID in URL, route params, or props)
     const urlParams = new URLSearchParams(window.location.search);
-    const pipelineId = urlParams.get("id");
-    setCurrentPipelineId(pipelineId);
-    setIsNewPipeline(!pipelineId);
-  }, []);
+    const queryPipelineId = urlParams.get("id");
+    const finalPipelineId = propPipelineId || queryPipelineId;
+    setCurrentPipelineId(finalPipelineId);
+    setIsNewPipeline(!finalPipelineId);
+  }, [propPipelineId]);
+
+  // Ensure sidebar is always visible
+  useEffect(() => {
+    setIsLeftPanelCollapsed(false);
+  }, [currentPipelineId]);
+
+  // Load pipeline data when pipeline ID is present
+  useEffect(() => {
+    const loadPipeline = async () => {
+      if (!currentPipelineId || !isClient) return;
+
+      try {
+        const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+        if (!token) {
+          console.log("No auth token, cannot load pipeline");
+          return;
+        }
+
+        const API_BASE =
+          typeof window === "undefined"
+            ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+            : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+
+        const res = await fetch(`${API_BASE}/pipelines/${currentPipelineId}`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+          },
+        });
+
+        if (!res.ok) {
+          console.error("Failed to load pipeline:", res.statusText);
+          return;
+        }
+
+        const pipeline = await res.json();
+        console.log("Loaded pipeline:", pipeline);
+
+        // Set project name
+        if (pipeline.name) {
+          setProjectName(pipeline.name);
+        }
+
+        // Set provider based on pipeline cloud
+        if (pipeline.cloud) {
+          const cloudToProvider: Record<string, "aws" | "gcp" | "azure"> = {
+            aws: "aws",
+            gcp: "gcp",
+            azure: "azure",
+          };
+          setInitialProvider(cloudToProvider[pipeline.cloud] || "aws");
+        }
+
+        // Restore nodes from payload if it exists
+        if (pipeline.payload && pipeline.payload.nodes) {
+          // Map kind back to service ID, label, and image
+          const kindToServiceMap: Record<string, { id: string; label: string; img: string }> = {
+            // AWS
+            "aws.s3": { id: "s3", label: "AWS S3", img: "/aws-icons/s3.png" },
+            "aws.sqs": { id: "sqs", label: "AWS SQS", img: "/aws-icons/sqs.png" },
+            "aws.lambda": { id: "lambda", label: "AWS Lambda", img: "/aws-icons/lambda.png" },
+            "aws.dynamodb": { id: "dynamodb", label: "DynamoDB", img: "/aws-icons/DynamoDB.png" },
+            "aws.apigw": { id: "apigateway", label: "API Gateway", img: "/aws-api-gateway-icon.png" },
+            "aws.sns": { id: "sns", label: "AWS SNS", img: "/aws-icons/sns.png" },
+            "aws.events.rule": { id: "events_rule", label: "EventBridge Rule", img: "/aws-icons/eventbridge.png" },
+            "aws.sfn": { id: "sfn", label: "Step Functions", img: "/aws-icons/stepfunctions.png" },
+            "aws.kinesis": { id: "kinesis", label: "AWS Kinesis", img: "/aws-icons/kinesis.png" },
+            "aws.ec2": { id: "ec2", label: "AWS EC2", img: "/aws-icons/ec2.png" },
+            "aws.rds": { id: "rds", label: "AWS RDS", img: "/aws-icons/rds.png" },
+            "aws.ecs": { id: "ecs", label: "AWS ECS", img: "/aws-icons/ecs.png" },
+            "aws.ecr": { id: "ecr", label: "AWS ECR", img: "/aws-icons/ecr.png" },
+            "aws.secretsmanager": { id: "secretsmanager", label: "Secrets Manager", img: "/aws-icons/secretsmanager.png" },
+            "aws.cognito": { id: "cognito", label: "Cognito", img: "/aws-icons/cognito.png" },
+            "aws.vpc": { id: "vpc", label: "AWS VPC", img: "/aws-icons/vpc.png" },
+            "aws.cloudwatch": { id: "cloudwatch", label: "CloudWatch", img: "/aws-icons/cloudwatch.png" },
+            "aws.elasticache": { id: "elasticache", label: "ElastiCache", img: "/aws-icons/elasticache.png" },
+            "aws.cloudfront": { id: "cloudfront", label: "CloudFront", img: "/placeholder-gtzyx.png" },
+            "aws.other": { id: "other", label: "Other", img: "/placeholder-gtzyx.png" },
+            // GCP
+            "gcp.storage": { id: "gcp-storage", label: "GCP Storage", img: "/gcp-icons/Google_Storage-Logo.wine.png" },
+            "gcp.pubsub": { id: "pubsub", label: "Pub/Sub", img: "/gcp-icons/google-cloud-pub-sub-logo.png" },
+            "gcp.run": { id: "cloud-run", label: "Cloud Run", img: "/gcp-icons/google-cloud-run-logo-png.png" },
+            "gcp.secretmanager": { id: "secret-manager", label: "GCP Secret Manager", img: "/gcp-icons/secret manager.png" },
+            "gcp.firestore": { id: "firestore", label: "GCP Firestore", img: "/gcp-icons/firestore.png" },
+            "gcp.other": { id: "other", label: "Other", img: "/placeholder-gtzyx.png" },
+            // Azure
+            "azure.storage": { id: "azure.storage", label: "Azure Storage", img: "/azure-icons/10086-icon-service-Storage-Accounts.png" },
+            "azure.servicebus": { id: "azure.servicebus", label: "Azure Service Bus", img: "/azure-icons/10836-icon-service-Azure-Service-Bus.png" },
+            "azure.containerapp": { id: "azure.containerapp", label: "Azure Container Apps", img: "/azure-icons/02989-icon-service-Container-Apps-Environments.png" },
+            "azure.vm": { id: "azure.vm", label: "Azure Virtual Machine", img: "/azure-icons/10021-icon-service-Virtual-Machine.png" },
+            "azure.functionapp": { id: "azure.functionapp", label: "Azure Function App", img: "/azure-icons/10029-icon-service-Function-Apps.png" },
+            "azure.sql": { id: "azure.sql", label: "Azure SQL Database", img: "/azure-icons/10130-icon-service-SQL-Database.png" },
+            "azure.cosmosdb": { id: "azure.cosmosdb", label: "Azure Cosmos DB", img: "/azure-icons/10121-icon-service-Azure-Cosmos-DB.png" },
+            "azure.apimanagement": { id: "azure.apimanagement", label: "Azure API Management", img: "/azure-icons/10042-icon-service-API-Management-Services.png" },
+            "azure.keyvault": { id: "azure.keyvault", label: "Azure Key Vault", img: "/azure-icons/10245-icon-service-Key-Vaults.png" },
+            "azure.appinsights": { id: "azure.appinsights", label: "Azure Application Insights", img: "/azure-icons/00012-icon-service-Application-Insights.png" },
+            "azure.vnet": { id: "azure.vnet", label: "Azure Virtual Network", img: "/azure-icons/10061-icon-service-Virtual-Networks.png" },
+            "azure.other": { id: "other", label: "Other", img: "/placeholder-gtzyx.png" },
+          };
+
+          const restoredItems: ServiceItem[] = pipeline.payload.nodes.map((node: any) => {
+            const serviceInfo = kindToServiceMap[node.kind] || { id: "other", label: node.name || "Unknown", img: "/placeholder-gtzyx.png" };
+            const position = node.position || { x: 0, y: 0 };
+
+            // Preserve the original node ID but ensure it starts with the service type
+            // Node IDs are like "s3-172705..." where "s3" is the service type
+            // If the node.id doesn't start with the service type, we need to fix it
+            let nodeId = node.id;
+            if (!nodeId.startsWith(serviceInfo.id)) {
+              // Extract timestamp if present, otherwise generate new one
+              const timestampMatch = nodeId.match(/-(\d+)$/);
+              const timestamp = timestampMatch ? timestampMatch[1] : Date.now().toString();
+              nodeId = `${serviceInfo.id}-${timestamp}`;
+            }
+
+            // Extract configuration from node.props
+            // The props contain: label, region, and all details spread
+            const props = node.props || {};
+            const { label: _label, region: propsRegion, ...details } = props;
+            
+            // Use region from props if available, otherwise from pipeline
+            const configRegion = propsRegion || pipeline.region || pipeline.payload.region || "us-east-1";
+
+            return {
+              id: nodeId,
+              label: serviceInfo.label,
+              img: serviceInfo.img,
+              x: position.x,
+              y: position.y,
+              config: {
+                name: node.name || serviceInfo.label,
+                description: `A ${serviceInfo.label.toLowerCase()} service`,
+                environment: (pipeline.env === "prod" ? "production" : pipeline.env === "staging" ? "staging" : "development") as "development" | "staging" | "production",
+                region: configRegion,
+                details: details, // All the service-specific details (bucketName, queueName, etc.)
+              },
+            };
+          });
+
+          setItems(restoredItems);
+          console.log("Restored items from pipeline:", restoredItems);
+          if (restoredItems.length > 0) {
+            console.log("Sample restored item config:", restoredItems[0]?.config);
+            console.log("Sample restored item details:", restoredItems[0]?.config?.details);
+            console.log("Original node props:", pipeline.payload.nodes[0]?.props);
+          }
+          
+          // Ensure sidebar is visible after loading pipeline
+          setIsLeftPanelCollapsed(false);
+          console.log("Pipeline loaded, sidebar should be visible. isLeftPanelCollapsed set to false");
+          
+          // Force a small delay to ensure sidebar renders after state updates
+          setTimeout(() => {
+            setIsLeftPanelCollapsed(false);
+            console.log("Sidebar visibility forced after pipeline load");
+          }, 100);
+
+          // Restore edges if they exist in the payload
+          if (pipeline.payload.edges && Array.isArray(pipeline.payload.edges)) {
+            const restoredEdges = pipeline.payload.edges.map((edge: any) => ({
+              from: edge.from,
+              to: edge.to,
+            }));
+            setInitialEdges(restoredEdges);
+            console.log("Restored edges from pipeline:", restoredEdges);
+          }
+        }
+      } catch (error: any) {
+        console.error("Error loading pipeline:", error);
+      }
+    };
+
+    loadPipeline();
+  }, [currentPipelineId, isClient]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -246,18 +425,6 @@ export default function WorkplaceClient() {
     setDraggedNodeId(null);
   };
 
-  if (!isClient) {
-    return (
-      <div className="flex h-screen">
-        <div className="w-64 bg-gray-200 animate-pulse"></div>
-        <div className="flex flex-col flex-1">
-          <div className="h-16 bg-gray-100 animate-pulse"></div>
-          <div className="flex-1 bg-white animate-pulse"></div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <DndContext
       sensors={sensors}
@@ -267,7 +434,7 @@ export default function WorkplaceClient() {
     >
       <div className="flex h-screen relative">
         <LeftPanel
-          isCollapsed={isLeftPanelCollapsed}
+          isCollapsed={false}
           onToggle={handleLeftPanelToggle}
           canvasNodes={nodesOnCanvasForCost}
           projectName={projectName}
@@ -281,6 +448,10 @@ export default function WorkplaceClient() {
               setIsNewPipeline(false);
             }
             setHasUnsavedChanges(false);
+          }}
+          onPipelineSelect={(pipeline) => {
+            // Navigate to the pipeline builder when a pipeline is selected from the sidebar
+            window.location.href = `/pipelines/${pipeline.id}/builder`;
           }}
           currentPipelineId={currentPipelineId}
           canvasRef={canvasRef}
@@ -298,6 +469,8 @@ export default function WorkplaceClient() {
                 onSelectedNodesChange={setSelectedForCost}
                 onCanvasNodesChange={setNodesOnCanvasForCost}
                 currentPipelineId={currentPipelineId}
+                initialEdges={initialEdges}
+                initialProvider={initialProvider}
                 onPipelineCreated={(pipelineId) => {
                   console.log("Pipeline auto-created, updating currentPipelineId:", pipelineId);
                   setCurrentPipelineId(pipelineId);

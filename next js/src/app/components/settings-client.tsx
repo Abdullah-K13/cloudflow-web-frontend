@@ -92,6 +92,7 @@ export default function SettingsClientBasic() {
   const [azureClientId, setAzureClientId] = useState("");
   const [azureSecret, setAzureSecret] = useState("");
   const [azureTenant, setAzureTenant] = useState("");
+  const [azureSubscriptionId, setAzureSubscriptionId] = useState("");
   // gcp
   const [gcpProjectId, setGcpProjectId] = useState("");
   const [gcpJson, setGcpJson] = useState("");
@@ -221,9 +222,76 @@ export default function SettingsClientBasic() {
     setKeys((k) => [{ id, name: "New API Key", key, created: today(), lastUsed: "—" }, ...k]);
     flash("New API key generated");
   };
-  const testConnection = () => {
-    // stubbed: wire to your API later
-    flash(`Verified ${provider.toUpperCase()} credentials.`);
+  const testConnection = async () => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+      if (!token) {
+        flash("Please log in to test connection", "err");
+        return;
+      }
+
+      const API_BASE = 
+        typeof window === "undefined"
+          ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+          : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+
+      if (provider === "azure") {
+        // Test Azure health endpoint
+        const res = await fetch(`${API_BASE}/azure/health`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+          },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          flash(`Azure connection successful! Status: ${data.status}`, "ok");
+        } else {
+          const error = await res.json().catch(() => ({ detail: res.statusText }));
+          throw new Error(error.detail || `Connection test failed (${res.status})`);
+        }
+      } else if (provider === "gcp") {
+        // Test GCP health endpoint
+        const res = await fetch(`${API_BASE}/gcp/health`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+          },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          flash(`GCP connection successful! Status: ${data.status}`, "ok");
+        } else {
+          const error = await res.json().catch(() => ({ detail: res.statusText }));
+          throw new Error(error.detail || `Connection test failed (${res.status})`);
+        }
+      } else if (provider === "aws") {
+        // Test AWS health endpoint
+        const res = await fetch(`${API_BASE}/aws/health`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          flash(`AWS connection successful! Status: ${data.status}`, "ok");
+        } else {
+          const error = await res.json().catch(() => ({ detail: res.statusText }));
+          throw new Error(error.detail || `Connection test failed (${res.status})`);
+        }
+      } else {
+        flash(`Verified ${provider.toUpperCase()} credentials.`, "ok");
+      }
+    } catch (error: any) {
+      console.error("Connection test error:", error);
+      flash(error?.message || "Connection test failed", "err");
+    }
   };
 
   /** Save cloud credentials */
@@ -276,7 +344,7 @@ export default function SettingsClientBasic() {
           return;
         }
       } else if (provider === "azure") {
-        if (!azureClientId || !azureSecret || !azureTenant) {
+        if (!azureClientId || !azureSecret || !azureTenant || !azureSubscriptionId) {
           flash("Please fill in all Azure credential fields", "err");
           setSavingCredentials(false);
           return;
@@ -285,6 +353,7 @@ export default function SettingsClientBasic() {
           client_id: azureClientId.trim(),
           client_secret: azureSecret.trim(),
           tenant_id: azureTenant.trim(),
+          subscription_id: azureSubscriptionId.trim(),
         };
       }
 
@@ -750,12 +819,12 @@ export default function SettingsClientBasic() {
 
                 {provider === "azure" && (
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label="Client ID">
+                    <Field label="Client ID (Application ID)">
                       <input
                         className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
                         value={azureClientId}
                         onChange={(e) => setAzureClientId(e.target.value)}
-                        placeholder="Enter client ID"
+                        placeholder="00000000-0000-0000-0000-000000000000"
                       />
                     </Field>
                     <Field label="Client Secret">
@@ -767,14 +836,26 @@ export default function SettingsClientBasic() {
                         placeholder="Enter client secret"
                       />
                     </Field>
-                    <Field label="Tenant ID" full>
+                    <Field label="Tenant ID (Directory ID)">
                       <input
                         className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
                         value={azureTenant}
                         onChange={(e) => setAzureTenant(e.target.value)}
-                        placeholder="Enter tenant ID"
+                        placeholder="00000000-0000-0000-0000-000000000000"
                       />
                     </Field>
+                    <Field label="Subscription ID">
+                      <input
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
+                        value={azureSubscriptionId}
+                        onChange={(e) => setAzureSubscriptionId(e.target.value)}
+                        placeholder="00000000-0000-0000-0000-000000000000"
+                      />
+                    </Field>
+                    <p className="col-span-full rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+                      <LockKeyhole className="mr-1 inline h-4 w-4" />
+                      Credentials are encrypted at rest. Create a Service Principal in Azure AD with Contributor role.
+                    </p>
                   </div>
                 )}
 

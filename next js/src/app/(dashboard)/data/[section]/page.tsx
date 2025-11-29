@@ -414,7 +414,7 @@ export default function PipelinesClient({ initialData }: Props) {
                     <div className="flex items-center gap-2">
                       <Cloud className="h-4 w-4 text-gray-400" />
                       <Link
-                        href={`/pipelines/${id}`}
+                        href={`/pipelines/${id}/builder`}
                         className="font-medium text-gray-900 hover:text-orange-700"
                       >
                         {name}
