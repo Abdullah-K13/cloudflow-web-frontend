@@ -112,12 +112,19 @@ export default function ObservabilityClient({ initialData }: Props) {
           const region = p.region ?? "";
           const status = (p.status ?? "draft") as Deployment["status"];
 
-          const created = p.created_at ?? p.updated_at ?? new Date().toISOString();
-          const updated = p.updated_at ?? created;
-
-          const createdMs = new Date(created).getTime();
-          const updatedMs = new Date(updated).getTime();
-          const durationSec = Math.max(0, (updatedMs - createdMs) / 1000);
+          // Use deployment_started_at if available, otherwise fall back to created_at
+          const startedAt = (p as any).deployment_started_at ?? p.created_at ?? p.updated_at ?? new Date().toISOString();
+          
+          // Use deployment_duration_sec if available (actual deployment duration)
+          // Otherwise calculate from created/updated (fallback for old pipelines)
+          let durationSec = (p as any).deployment_duration_sec;
+          if (durationSec === null || durationSec === undefined) {
+            const created = p.created_at ?? p.updated_at ?? new Date().toISOString();
+            const updated = p.updated_at ?? created;
+            const createdMs = new Date(created).getTime();
+            const updatedMs = new Date(updated).getTime();
+            durationSec = Math.max(0, (updatedMs - createdMs) / 1000);
+          }
 
           return {
             id: p.id,
@@ -127,7 +134,7 @@ export default function ObservabilityClient({ initialData }: Props) {
             cloud,
             region,
             status,
-            startedAt: created,
+            startedAt,
             durationSec,
           };
         });

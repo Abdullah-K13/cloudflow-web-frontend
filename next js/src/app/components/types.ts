@@ -32,4 +32,6 @@ export interface CanvasProps {
   onCanvasNodesChange?: (nodes: { id: string; type: string; data?: { cost?: number; label?: string } }[]) => void;
   currentPipelineId?: string | null;
   onPipelineCreated?: (pipelineId: string) => void;
+  initialEdges?: Array<{ from: string; to: string }>;
+  initialProvider?: "aws" | "gcp" | "azure";
 }

@@ -88,6 +88,7 @@ export default function LeftPanel({
   onSavePipeline,
   currentPipelineId,
   canvasRef,
+  isCollapsed,
 }: LeftPanelProps) {
   const canvasServiceCounts = useMemo(() => {
     const map = new Map<ServiceKey, number>();
@@ -590,12 +591,21 @@ export default function LeftPanel({
     }
   };
 
-  if (!mounted) return null;
+  // Ensure sidebar is always visible with minimum width
+  const sidebarWidth = width && width > 0 ? width : 280;
+  
+  // Debug: Log when component renders (must be before any early returns)
+  useEffect(() => {
+    console.log("LeftPanel rendered, width:", sidebarWidth, "isCollapsed prop:", isCollapsed, "mounted:", mounted);
+  }, [sidebarWidth, isCollapsed, mounted]);
 
+  // Force sidebar to always be visible (ignore isCollapsed prop as per comment in interface)
+  // Don't return null - always render the sidebar, even if not mounted yet
   return (
     <div
       className="relative z-10 bg-white/90 backdrop-blur-sm border-r border-slate-100 shadow-sm flex flex-col overflow-hidden"
-      style={{ width }}
+      style={{ width: sidebarWidth, minWidth: 280, display: 'flex', height: '100%', minHeight: '100vh' }}
+      data-testid="left-panel"
     >
       {/* resize handle */}
       <div

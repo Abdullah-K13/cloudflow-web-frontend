@@ -128,16 +128,17 @@ const GCP_SERVICES: ServiceItem[] = [
 ];
 
 const AZURE_SERVICES: ServiceItem[] = [
-  { id: "rds", label: "Azure Database (Postgres)", img: "/azure-icons/postgres.png" },
-  { id: "lambda", label: "Azure Functions", img: "/azure-icons/functions.png" },
-  { id: "sns", label: "Event Grid", img: "/azure-icons/event-grid.png" },
-  { id: "s3", label: "Blob Storage", img: "/azure-icons/blob.png" },
-  { id: "ec2", label: "Virtual Machines", img: "/azure-icons/vm.png" },
-  { id: "kinesis", label: "Event Hubs", img: "/azure-icons/event-hubs.png" },
-  { id: "sqs", label: "Service Bus Queue", img: "/azure-icons/service-bus.png" },
-  { id: "dynamodb", label: "Cosmos DB", img: "/azure-icons/cosmos.png" },
-  { id: "cloudfront", label: "Front Door / CDN", img: "/azure-icons/cdn.png" },
-  { id: "apigateway", label: "API Management", img: "/azure-icons/apim.png" },
+  { id: "azure.storage", label: "Azure Storage", img: "/azure-icons/10086-icon-service-Storage-Accounts.png" },
+  { id: "azure.servicebus", label: "Azure Service Bus", img: "/azure-icons/10836-icon-service-Azure-Service-Bus.png" },
+  { id: "azure.containerapp", label: "Azure Container Apps", img: "/azure-icons/02989-icon-service-Container-Apps-Environments.png" },
+  { id: "azure.vm", label: "Azure Virtual Machine", img: "/azure-icons/10021-icon-service-Virtual-Machine.png" },
+  { id: "azure.functionapp", label: "Azure Function App", img: "/azure-icons/10029-icon-service-Function-Apps.png" },
+  { id: "azure.sql", label: "Azure SQL Database", img: "/azure-icons/10130-icon-service-SQL-Database.png" },
+  { id: "azure.cosmosdb", label: "Azure Cosmos DB", img: "/azure-icons/10121-icon-service-Azure-Cosmos-DB.png" },
+  { id: "azure.apimanagement", label: "Azure API Management", img: "/azure-icons/10042-icon-service-API-Management-Services.png" },
+  { id: "azure.keyvault", label: "Azure Key Vault", img: "/azure-icons/10245-icon-service-Key-Vaults.png" },
+  { id: "azure.appinsights", label: "Azure Application Insights", img: "/azure-icons/00012-icon-service-Application-Insights.png" },
+  { id: "azure.vnet", label: "Azure Virtual Network", img: "/azure-icons/10061-icon-service-Virtual-Networks.png" },
 ];
 
 /* default catalog = AWS (ids unchanged) */
@@ -169,7 +170,18 @@ type ExtendedPlanNodeType =
   | "secret-manager"
   | "firestore"
   | "ec2"
-  | "rds";
+  | "rds"
+  | "azure.storage"
+  | "azure.servicebus"
+  | "azure.containerapp"
+  | "azure.vm"
+  | "azure.functionapp"
+  | "azure.sql"
+  | "azure.cosmosdb"
+  | "azure.apimanagement"
+  | "azure.keyvault"
+  | "azure.appinsights"
+  | "azure.vnet";
 type PlanEdgeType = `${ExtendedPlanNodeType}_to_${ExtendedPlanNodeType}`;
 type PlanNode = { id: string; type: ExtendedPlanNodeType; name: string; props?: Record<string, any> };
 type PlanEdge = { type: PlanEdgeType; from: string; to: string; props?: Record<string, any> };
@@ -196,6 +208,18 @@ const TYPE_MAP: Record<string, ExtendedPlanNodeType> = {
   "cloud-run": "cloud-run",
   "secret-manager": "secret-manager",
   firestore: "firestore",
+  // Azure Services
+  "azure.storage": "azure.storage",
+  "azure.servicebus": "azure.servicebus",
+  "azure.containerapp": "azure.containerapp",
+  "azure.vm": "azure.vm",
+  "azure.functionapp": "azure.functionapp",
+  "azure.sql": "azure.sql",
+  "azure.cosmosdb": "azure.cosmosdb",
+  "azure.apimanagement": "azure.apimanagement",
+  "azure.keyvault": "azure.keyvault",
+  "azure.appinsights": "azure.appinsights",
+  "azure.vnet": "azure.vnet",
 };
 
 const classifyEdge = (src: ExtendedPlanNodeType | string, tgt: ExtendedPlanNodeType | string): PlanEdgeType => {
@@ -236,6 +260,18 @@ const KIND_MAP: Record<string, string> = {
   "cloud-run": "gcp.run",
   "secret-manager": "gcp.secretmanager",
   firestore: "gcp.firestore",
+  // Azure (IDs already in correct format, map to themselves)
+  "azure.storage": "azure.storage",
+  "azure.servicebus": "azure.servicebus",
+  "azure.containerapp": "azure.containerapp",
+  "azure.vm": "azure.vm",
+  "azure.functionapp": "azure.functionapp",
+  "azure.sql": "azure.sql",
+  "azure.cosmosdb": "azure.cosmosdb",
+  "azure.apimanagement": "azure.apimanagement",
+  "azure.keyvault": "azure.keyvault",
+  "azure.appinsights": "azure.appinsights",
+  "azure.vnet": "azure.vnet",
 };
 
 // friendly label (not used by backend payload now, but handy for debugging)
@@ -284,6 +320,7 @@ function computeIntent(src: string, tgt: string): "notify" | "consume" | "invoke
 
 // Connection Rules based on CAPABILITIES.md
 const CONNECTION_RULES: Record<string, string[]> = {
+  // AWS
   s3: ["sqs", "lambda", "sns", "events_rule"],
   sns: ["lambda", "sqs"],
   sqs: ["lambda"],
@@ -298,12 +335,128 @@ const CONNECTION_RULES: Record<string, string[]> = {
   "gcp-storage": ["pubsub"],
   pubsub: ["cloud-run"],
   "cloud-run": ["secret-manager"],
+  // Azure - All valid connections from Edge Connections Reference
+  "azure.storage": [
+    "azure.servicebus",      // Event Grid subscription
+    "azure.functionapp",     // Storage connection for blob triggers
+    "azure.containerapp",    // Storage connection
+    "azure.sql",             // For backups/data import
+    "azure.cosmosdb",        // For backups/data import
+    "azure.vm",              // For VM disk/file shares
+    "azure.apimanagement",   // For API documentation
+  ],
+  "azure.servicebus": [
+    "azure.containerapp",    // Queue connection
+    "azure.functionapp",     // Queue connection
+    "azure.sql",             // For database notifications
+    "azure.cosmosdb",        // For database notifications
+    "azure.vm",              // For VM notifications
+    "azure.apimanagement",   // For API events
+  ],
+  "azure.containerapp": [
+    "azure.functionapp",     // Function App URL
+    "azure.storage",         // Storage connection
+    "azure.servicebus",      // Queue connection
+    "azure.sql",             // SQL connection
+    "azure.cosmosdb",        // Cosmos connection
+    "azure.keyvault",        // Key Vault URI
+    "azure.appinsights",     // Monitoring
+    "azure.apimanagement",   // Gateway URL
+    "azure.vnet",            // VNet info
+  ],
+  "azure.functionapp": [
+    "azure.containerapp",    // Container App FQDN
+    "azure.storage",         // Storage connection
+    "azure.servicebus",      // Queue connection
+    "azure.sql",             // SQL connection
+    "azure.cosmosdb",        // Cosmos connection
+    "azure.keyvault",        // Key Vault URI
+    "azure.appinsights",     // Monitoring
+    "azure.apimanagement",   // Gateway URL
+    "azure.vnet",            // VNet info
+  ],
+  "azure.vm": [
+    "azure.storage",         // Storage connection
+    "azure.servicebus",      // Queue connection
+    "azure.containerapp",    // Container App FQDN
+    "azure.functionapp",     // Function App URL
+    "azure.sql",             // SQL connection
+    "azure.cosmosdb",        // Cosmos connection
+    "azure.keyvault",        // Key Vault URI
+    "azure.appinsights",     // Monitoring
+    "azure.apimanagement",   // Gateway URL
+    "azure.vnet",            // VNet info (for reference)
+  ],
+  "azure.sql": [
+    "azure.functionapp",     // SQL connection info
+    "azure.containerapp",    // SQL connection info
+    "azure.storage",         // For backups
+    "azure.servicebus",       // For database events
+    "azure.vm",              // For VM connection
+    "azure.vnet",            // For database networking
+  ],
+  "azure.cosmosdb": [
+    "azure.functionapp",     // Cosmos connection info
+    "azure.containerapp",    // Cosmos connection info
+    "azure.storage",         // For backups
+    "azure.servicebus",      // For database events
+    "azure.vm",              // For VM connection
+    "azure.vnet",            // For database networking
+  ],
+  "azure.keyvault": [
+    "azure.functionapp",     // Key Vault URI
+    "azure.containerapp",    // Key Vault URI
+    "azure.sql",             // For database credentials
+    "azure.cosmosdb",        // For database credentials
+    "azure.vm",              // For VM secrets
+    "azure.apimanagement",   // For API keys
+    "azure.storage",         // For storage account keys
+    "azure.servicebus",      // For queue credentials
+    "azure.vnet",            // For key vault networking
+  ],
+  "azure.appinsights": [
+    "azure.functionapp",     // Instrumentation
+    "azure.containerapp",    // Instrumentation
+    "azure.sql",             // Database monitoring
+    "azure.cosmosdb",        // Database monitoring
+    "azure.vm",              // VM monitoring
+    "azure.apimanagement",   // API monitoring
+    "azure.storage",         // Storage monitoring
+    "azure.servicebus",      // Queue monitoring
+  ],
+  "azure.apimanagement": [
+    "azure.functionapp",     // Gateway URL
+    "azure.containerapp",    // Gateway URL
+    "azure.vm",              // VM info
+    "azure.keyvault",        // Key Vault URI
+    "azure.appinsights",     // Instrumentation
+    "azure.sql",             // Database APIs
+    "azure.cosmosdb",        // Database APIs
+    "azure.storage",         // Storage APIs
+    "azure.servicebus",      // Queue APIs
+    "azure.vnet",            // API gateway networking
+  ],
+  "azure.vnet": [
+    "azure.vm",              // VM networking
+    "azure.containerapp",    // Container networking
+    "azure.functionapp",     // Function networking
+    "azure.sql",             // Database networking
+    "azure.cosmosdb",        // Database networking
+    "azure.storage",         // Storage networking
+    "azure.servicebus",      // Queue networking
+    "azure.apimanagement",   // API gateway networking
+    "azure.keyvault",        // Key vault networking
+    "azure.appinsights",     // For reference
+  ],
 };
 
-const isValidConnection = (src: string, tgt: string): boolean => {
+const isValidConnection = (src: string, tgt: string, provider?: Provider): boolean => {
   // Normalize types if needed (e.g. remove 'aws.' prefix if present in internal types, though here we use internal IDs)
   const allowed = CONNECTION_RULES[src];
-  return allowed ? allowed.includes(tgt) : false;
+  if (!allowed) return false;
+  
+  // Check if target is in allowed list
+  return allowed.includes(tgt);
 };
 
 // minimal props normalization for UI → payload mapping
@@ -471,6 +624,77 @@ function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
       databaseId: d.databaseId || "(default)",
     };
   }
+  // Azure Services
+  if (kind === "azure.storage") {
+    return {
+      accountKind: d.accountKind || "StorageV2",
+      sku: d.sku || "Standard_LRS",
+      containerName: d.containerName || undefined,
+    };
+  }
+  if (kind === "azure.servicebus") {
+    return {
+      sku: d.sku || "Basic",
+      queueName: d.queueName || undefined,
+      partition: d.partition !== undefined ? !!d.partition : false,
+    };
+  }
+  if (kind === "azure.containerapp") {
+    return {
+      image: d.image || "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest",
+      cpu: d.cpu || 0.25,
+      memory: d.memory || "0.5Gi",
+      env: d.env || {},
+    };
+  }
+  if (kind === "azure.vm") {
+    return {
+      vmSize: d.vmSize || "Standard_B1s",
+      adminUsername: d.adminUsername || "azureuser",
+      adminPassword: d.adminPassword || undefined,
+      osType: d.osType || "Linux",
+    };
+  }
+  if (kind === "azure.functionapp") {
+    return {
+      sku: d.sku || "Y1",
+    };
+  }
+  if (kind === "azure.sql") {
+    return {
+      databaseName: d.databaseName || undefined,
+      serviceTier: d.sku?.name || d.serviceTier || "S0",
+      sku: d.sku || { name: "S0", tier: "Standard" },
+    };
+  }
+  if (kind === "azure.cosmosdb") {
+    return {
+      databaseName: d.databaseName || undefined,
+      containerName: d.containerName || undefined,
+      partitionKey: d.partitionKey || "/id",
+    };
+  }
+  if (kind === "azure.apimanagement") {
+    return {
+      publisherName: d.publisherName || "Contoso",
+      publisherEmail: d.publisherEmail || "admin@contoso.com",
+      sku: d.sku || "Developer",
+    };
+  }
+  if (kind === "azure.keyvault") {
+    return {
+      tenantId: d.tenantId || undefined,
+    };
+  }
+  if (kind === "azure.appinsights") {
+    return {}; // No required props
+  }
+  if (kind === "azure.vnet") {
+    return {
+      addressSpaces: d.addressSpaces || ["10.0.0.0/16"],
+      subnets: d.subnets || [{ name: "default", addressPrefix: "10.0.1.0/24" }],
+    };
+  }
   // pass-through for others
   return { ...d };
 }
@@ -491,7 +715,7 @@ const makeDefaultConfig = (label: string) => ({
 /* --------------------- component --------------------- */
 
 const CanvasInner = (
-  { items, updateItemPosition, onSelectedNodesChange, onCanvasNodesChange, currentPipelineId, onPipelineCreated }: CanvasProps,
+  { items, updateItemPosition, onSelectedNodesChange, onCanvasNodesChange, currentPipelineId, onPipelineCreated, initialEdges, initialProvider }: CanvasProps,
   ref: React.Ref<{ getPlan: () => Plan; getPrompt: () => string; buildDeploymentPayload: (plan: Plan) => any; getProvider: () => Provider }>
 ) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -501,7 +725,14 @@ const CanvasInner = (
   const memoNodeTypes = React.useMemo(() => nodeTypes, []);
 
   /* ===== New: provider + palette state (UI only) ====================== */
-  const [provider, setProvider] = useState<Provider>("aws");
+  const [provider, setProvider] = useState<Provider>(initialProvider || "aws");
+  
+  // Update provider when initialProvider changes (e.g., when loading a pipeline)
+  useEffect(() => {
+    if (initialProvider) {
+      setProvider(initialProvider);
+    }
+  }, [initialProvider]);
   const currentServices = React.useMemo<ServiceItem[]>(() => {
     switch (provider) {
       case "gcp":
@@ -513,19 +744,50 @@ const CanvasInner = (
     }
   }, [provider]);
 
-  // init from items ONCE
-  const didInitRef = useRef(false);
+  // init from items - reset when items change (e.g., when loading a pipeline)
+  const prevItemsRef = useRef<ServiceItem[]>([]);
+  const edgesInitializedRef = useRef(false);
   useEffect(() => {
-    if (didInitRef.current) return;
-    const initial: Node[] = items.map((item) => ({
-      id: item.id,
-      type: item.id,
-      position: { x: item.x ?? 0, y: item.y ?? 0 },
-      data: { label: item.label, img: item.img, service: item },
-    }));
-    setNodes(initial);
-    didInitRef.current = true;
+    // Check if items actually changed (by comparing IDs)
+    const itemsChanged = 
+      items.length !== prevItemsRef.current.length ||
+      items.some((item, idx) => {
+        const prev = prevItemsRef.current[idx];
+        return !prev || item.id !== prev.id || item.x !== prev.x || item.y !== prev.y;
+      });
+
+    if (itemsChanged) {
+      const initial: Node[] = items.map((item) => {
+        // Extract service type from node ID (format: "serviceType-timestamp")
+        // The node type should be the service ID (e.g., "s3", "lambda") for proper icon display
+        const serviceType = item.id.split('-')[0];
+        return {
+          id: item.id,
+          type: serviceType, // Use service type, not full ID
+          position: { x: item.x ?? 0, y: item.y ?? 0 },
+          data: { label: item.label, img: item.img, service: item },
+        };
+      });
+      setNodes(initial);
+      prevItemsRef.current = items;
+      edgesInitializedRef.current = false; // Reset edges flag when items change
+    }
   }, [items, setNodes]);
+
+  // Restore edges from initialEdges when loading a pipeline
+  useEffect(() => {
+    if (initialEdges && initialEdges.length > 0 && !edgesInitializedRef.current) {
+      const restoredEdges: Edge[] = initialEdges.map((e) => ({
+        id: `${e.from}-${e.to}`,
+        source: e.from,
+        target: e.to,
+        type: "bezier",
+        markerEnd: { type: MarkerType.ArrowClosed },
+      }));
+      setEdges(restoredEdges);
+      edgesInitializedRef.current = true;
+    }
+  }, [initialEdges, setEdges]);
 
   useEffect(() => {
     onCanvasNodesChange?.(nodes.map((n) => ({
@@ -545,14 +807,14 @@ const CanvasInner = (
       const srcType = String(srcNode?.type);
       const tgtType = String(tgtNode?.type);
 
-      if (!isValidConnection(srcType, tgtType)) {
-        alert(`Invalid connection: ${srcNode?.data.label} cannot connect to ${tgtNode?.data.label}.\n\nRefer to CAPABILITIES.md for valid connections.`);
+      if (!isValidConnection(srcType, tgtType, provider)) {
+        alert(`Invalid connection: ${srcNode?.data.label} cannot connect to ${tgtNode?.data.label}.\n\nRefer to Edge Connections Reference for valid connections.`);
         return;
       }
 
       setEdges((eds) => addEdge({ ...params, type: "bezier", markerEnd: { type: MarkerType.ArrowClosed } }, eds));
     },
-    [setEdges, nodes]
+    [setEdges, nodes, provider]
   );
 
   const onNodeDrag = useCallback(
@@ -844,7 +1106,7 @@ const CanvasInner = (
   }, [nodes, edges]);
 
   /* ----------------- NEW: build desired /deploy payload ----------------- */
-  type DeployNode = { id: string; kind: string; name: string; props: Record<string, any> };
+  type DeployNode = { id: string; kind: string; name: string; props: Record<string, any>; position?: { x: number; y: number } };
   type DeployEdge = { from: string; to: string; intent: "notify" | "consume" | "invoke" | "read" | "write" | "deliver" | "access"; path?: string; method?: string; batchSize?: number };
   type DeployPayload = {
     project: string;
@@ -854,7 +1116,7 @@ const CanvasInner = (
     edges: DeployEdge[];
   };
 
-  function buildDeploymentPayload(plan: Plan): DeployPayload & { location?: string } {
+  const buildDeploymentPayload = useCallback((plan: Plan): DeployPayload & { location?: string } => {
     const project = "canvas-project";
     const env = "dev";
     // Use appropriate default region based on provider
@@ -873,28 +1135,45 @@ const CanvasInner = (
       payload.location = region;
     }
 
+    // Create a map of node positions from React Flow nodes
+    const nodePositions = new Map<string, { x: number; y: number }>();
+    nodes.forEach((n) => {
+      nodePositions.set(n.id, { x: n.position.x, y: n.position.y });
+    });
+
     // quick lookups to compute props that depend on connectivity
     const outgoingById = new Map<string, number>();
     plan.edges.forEach((e) => outgoingById.set(e.from, (outgoingById.get(e.from) || 0) + 1));
 
-    const nodes: DeployNode[] = plan.nodes.map((pn) => {
-      const kind = KIND_MAP[pn.type] || (provider === "gcp" ? "gcp.other" : "aws.other");
+    const deployNodes: DeployNode[] = plan.nodes.map((pn) => {
+      const kind = KIND_MAP[pn.type] || (provider === "gcp" ? "gcp.other" : provider === "azure" ? "azure.other" : "aws.other");
       const raw = pn.props || {};
 
-      // normalize props to the exact keys you requested
-      const props = normalizeToDesiredProps(kind, raw);
+      // normalize props to the exact keys you requested for backend
+      const normalizedProps = normalizeToDesiredProps(kind, raw);
 
       // S3: turn on eventBridge if it has any outgoing links
       if (kind === "aws.s3") {
         const hasOutgoing = (outgoingById.get(pn.id) || 0) > 0;
-        if (props.eventBridge === undefined) props.eventBridge = hasOutgoing ? true : false;
+        if (normalizedProps.eventBridge === undefined) normalizedProps.eventBridge = hasOutgoing ? true : false;
       }
+
+      // Get position from React Flow nodes
+      const position = nodePositions.get(pn.id) || { x: 0, y: 0 };
+
+      // Preserve ALL original props for restoration (including bucketName, queueName, etc.)
+      // Merge normalized props with original raw props to ensure we have everything
+      const props = {
+        ...raw, // Keep all original details (bucketName, queueName, etc.)
+        ...normalizedProps, // Override with normalized versions where applicable
+      };
 
       return {
         id: pn.id, // keep your RF node id (e.g., "s3-172705...")
         kind,
         name: pn.name, // sanitized name (e.g., "images-bucket")
         props,
+        position, // Include position (x, y) for canvas restoration
       };
     });
 
@@ -924,11 +1203,11 @@ const CanvasInner = (
       return edge;
     });
 
-    payload.nodes = nodes;
+    payload.nodes = deployNodes;
     payload.edges = edges;
 
     return payload;
-  }
+  }, [nodes, provider]);
 
   /* ----------------- LLM prompt kept (for completeness) ----------------- */
   const buildPrompt = useCallback((plan: Plan): string => {
@@ -965,6 +1244,7 @@ const CanvasInner = (
       : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
   const AWS_API_BASE = `${API_BASE}/aws`;
   const GCP_API_BASE = `${API_BASE}/gcp`;
+  const AZURE_API_BASE = `${API_BASE}/azure`;
 
   // Helper to get access token from localStorage
   const getAccessToken = (): string | null => {
@@ -1005,6 +1285,31 @@ const CanvasInner = (
       return data?.has_gcp_credentials === true;
     } catch (error) {
       console.error("Error checking GCP credentials:", error);
+      return false;
+    }
+  };
+
+  // Check if user has Azure credentials configured
+  const checkAzureCredentials = async (): Promise<boolean> => {
+    try {
+      const token = getAccessToken();
+      if (!token) {
+        return false;
+      }
+
+      const res = await fetch(`${API_BASE}/auth/credentials/check`, {
+        method: "GET",
+        headers: getHeaders(true),
+      });
+
+      if (!res.ok) {
+        return false;
+      }
+
+      const data = await res.json();
+      return data?.has_azure_credentials === true;
+    } catch (error) {
+      console.error("Error checking Azure credentials:", error);
       return false;
     }
   };
@@ -1137,15 +1442,24 @@ const CanvasInner = (
 
   /* ----------------- Deploy via /deploy (requires auth) ----------------- */
   const handleDeploy = async () => {
+    const deploymentStartTime = Date.now(); // Track deployment start time
+    let pipelineId: string | null = null;
+    
     try {
       const token = getAccessToken();
       if (!token) {
         throw new Error("Authentication required. Please log in first.");
       }
 
-      // Check if GCP credentials are configured (only for GCP)
+      // Check if credentials are configured (for GCP and Azure)
       if (provider === "gcp") {
         const hasCreds = await checkGcpCredentials();
+        if (!hasCreds) {
+          setShowCredsModal(true);
+          return;
+        }
+      } else if (provider === "azure") {
+        const hasCreds = await checkAzureCredentials();
         if (!hasCreds) {
           setShowCredsModal(true);
           return;
@@ -1154,15 +1468,36 @@ const CanvasInner = (
 
       setDeploying(true);
 
+      // Update pipeline status to "deploying" and record start time
+      pipelineId = currentPipelineId || await ensurePipelineExists();
+      if (pipelineId) {
+        const API_BASE =
+          typeof window === "undefined"
+            ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+            : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+        
+        await fetch(`${API_BASE}/pipelines/${pipelineId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+          },
+          body: JSON.stringify({ 
+            status: "deploying",
+            deployment_started_at: new Date().toISOString()
+          }),
+        });
+      }
+
       const plan = buildPlan();
       const payload = buildDeploymentPayload(plan);
 
       // Use appropriate API endpoint based on provider
-      const apiBase = provider === "gcp" ? GCP_API_BASE : AWS_API_BASE;
-      const endpoint = provider === "gcp" ? "/up" : "/deploy";
+      const apiBase = provider === "gcp" ? GCP_API_BASE : provider === "azure" ? AZURE_API_BASE : AWS_API_BASE;
+      const endpoint = provider === "gcp" ? "/up" : provider === "azure" ? "/deploy" : "/deploy";
 
-      // For GCP, wrap payload in {ir: {...}} format
-      const requestBody = provider === "gcp" ? { ir: payload } : payload;
+      // For GCP and Azure, wrap payload in {ir: {...}} format
+      const requestBody = (provider === "gcp" || provider === "azure") ? { ir: payload } : payload;
 
       const res = await fetch(`${apiBase}${endpoint}`, {
         method: "POST",
@@ -1177,6 +1512,10 @@ const CanvasInner = (
       } catch {
         /* keep raw text */
       }
+
+      // Calculate deployment duration
+      const deploymentEndTime = Date.now();
+      const durationSec = (deploymentEndTime - deploymentStartTime) / 1000;
 
       if (!res.ok) {
         // Handle bootstrap error specifically
@@ -1206,8 +1545,25 @@ const CanvasInner = (
       // Success response: {message: "deploy ok", output: "..."}
       console.log("Deploy ok:", data);
 
-      // Update pipeline status to "ready" on successful deployment
-      await updatePipelineStatus("ready");
+      // Update pipeline status to "deployed" and save duration
+      if (pipelineId) {
+        const API_BASE =
+          typeof window === "undefined"
+            ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+            : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+        
+        await fetch(`${API_BASE}/pipelines/${pipelineId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+          },
+          body: JSON.stringify({ 
+            status: "deployed",
+            deployment_duration_sec: durationSec
+          }),
+        });
+      }
 
       setSuccessModal({
         isOpen: true,
@@ -1218,8 +1574,32 @@ const CanvasInner = (
     } catch (e: any) {
       console.error("Deployment error:", e?.message || e);
 
-      // Update pipeline status to "failed" on deployment error
-      await updatePipelineStatus("failed");
+      // Calculate duration even on failure
+      const deploymentEndTime = Date.now();
+      const durationSec = (deploymentEndTime - deploymentStartTime) / 1000;
+
+      // Update pipeline status to "failed" and save duration
+      if (pipelineId) {
+        const token = getAccessToken();
+        if (token) {
+          const API_BASE =
+            typeof window === "undefined"
+              ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+              : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+          
+          await fetch(`${API_BASE}/pipelines/${pipelineId}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`,
+            },
+            body: JSON.stringify({ 
+              status: "failed",
+              deployment_duration_sec: durationSec
+            }),
+          });
+        }
+      }
 
       alert(e?.message || "Something went wrong while deploying.");
     } finally {
@@ -1344,23 +1724,42 @@ const CanvasInner = (
     }
   };
 
-  /* ----------------- Destroy via /destroy (requires auth for GCP) ----------------- */
+  /* ----------------- Destroy via /destroy (requires auth for GCP and Azure) ----------------- */
   const handleDestroy = async () => {
     try {
+      const token = getAccessToken();
+      if (!token && (provider === "gcp" || provider === "azure")) {
+        throw new Error("Authentication required. Please log in first.");
+      }
+
+      // Check if credentials are configured (for GCP and Azure)
+      if (provider === "gcp") {
+        const hasCreds = await checkGcpCredentials();
+        if (!hasCreds) {
+          setShowCredsModal(true);
+          return;
+        }
+      } else if (provider === "azure") {
+        const hasCreds = await checkAzureCredentials();
+        if (!hasCreds) {
+          setShowCredsModal(true);
+          return;
+        }
+      }
+
       setDestroying(true);
 
-      // For GCP, destroy needs IR with project and env
+      // For GCP and Azure, destroy needs IR with project and env
       let body: any = {};
-      if (provider === "gcp") {
+      if (provider === "gcp" || provider === "azure") {
         const plan = buildPlan();
         const payload = buildDeploymentPayload(plan);
-        body = payload; // Send full IR for GCP
+        body = { project: payload.project, env: payload.env }; // Send project and env for destroy
       }
 
       // Use appropriate API endpoint based on provider
-      const apiBase = provider === "gcp" ? GCP_API_BASE : AWS_API_BASE;
-      const token = getAccessToken();
-      const includeAuth = provider === "gcp"; // GCP destroy requires auth
+      const apiBase = provider === "gcp" ? GCP_API_BASE : provider === "azure" ? AZURE_API_BASE : AWS_API_BASE;
+      const includeAuth = provider === "gcp" || provider === "azure"; // GCP and Azure destroy require auth
 
       const res = await fetch(`${apiBase}/destroy`, {
         method: "POST",
@@ -1409,7 +1808,7 @@ const CanvasInner = (
     }
   };
 
-  /* ----------------- Preview via /gcp/preview (requires auth) ----------------- */
+  /* ----------------- Preview via /preview (requires auth for GCP and Azure) ----------------- */
   const handlePreview = async () => {
     try {
       const token = getAccessToken();
@@ -1417,11 +1816,19 @@ const CanvasInner = (
         throw new Error("Authentication required. Please log in first.");
       }
 
-      // Check if GCP credentials are configured
-      const hasCreds = await checkGcpCredentials();
-      if (!hasCreds) {
-        setShowCredsModal(true);
-        return;
+      // Check if credentials are configured (for GCP and Azure)
+      if (provider === "gcp") {
+        const hasCreds = await checkGcpCredentials();
+        if (!hasCreds) {
+          setShowCredsModal(true);
+          return;
+        }
+      } else if (provider === "azure") {
+        const hasCreds = await checkAzureCredentials();
+        if (!hasCreds) {
+          setShowCredsModal(true);
+          return;
+        }
       }
 
       setPreviewing(true);
@@ -1429,9 +1836,12 @@ const CanvasInner = (
       const plan = buildPlan();
       const payload = buildDeploymentPayload(plan);
 
+      // Use appropriate API endpoint based on provider
+      const apiBase = provider === "gcp" ? GCP_API_BASE : provider === "azure" ? AZURE_API_BASE : AWS_API_BASE;
+      
       // Preview endpoint accepts {ir, creds} format
       // Backend will get credentials from user table if not provided
-      const res = await fetch(`${GCP_API_BASE}/preview`, {
+      const res = await fetch(`${apiBase}/preview`, {
         method: "POST",
         headers: getHeaders(true),
         body: JSON.stringify({ ir: payload }),
@@ -1712,10 +2122,13 @@ const CanvasInner = (
                 console.log("=== Prompt ===\n", prompt);
                 const payload = buildDeploymentPayload(plan);
 
-                // For GCP, wrap in {ir: {...}} format for console output
+                // For GCP and Azure, wrap in {ir: {...}} format for console output
                 if (provider === "gcp") {
                   const wrappedPayload = { ir: payload };
                   console.log("=== /gcp/up payload ===\n", JSON.stringify(wrappedPayload, null, 2));
+                } else if (provider === "azure") {
+                  const wrappedPayload = { ir: payload };
+                  console.log("=== /azure/deploy payload ===\n", JSON.stringify(wrappedPayload, null, 2));
                 } else {
                   console.log("=== /deploy payload ===\n", JSON.stringify(payload, null, 2));
                 }
@@ -1892,6 +2305,74 @@ const CanvasInner = (
                     "shadow-sm transition-all",
                   ].join(" ")}
                   title="Destroy GCP resources"
+                >
+                  {destroying ? "Destroying…" : "Destroy"}
+                </button>
+              </>
+            )}
+
+            {/* Azure-specific buttons */}
+            {provider === "azure" && (
+              <>
+                <button
+                  type="button"
+                  onClick={handlePreview}
+                  disabled={previewing}
+                  className={[
+                    "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                    "bg-indigo-600 text-white hover:bg-indigo-700",
+                    "focus:outline-none focus:ring-4 focus:ring-indigo-200/70",
+                    "disabled:opacity-60 disabled:cursor-not-allowed",
+                    "shadow-sm transition-all",
+                  ].join(" ")}
+                  title="Preview changes before deploying"
+                >
+                  {previewing ? "Previewing…" : "Preview"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDeploy}
+                  disabled={deploying}
+                  className={[
+                    "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                    "bg-sky-600 text-white hover:bg-sky-700",
+                    "focus:outline-none focus:ring-4 focus:ring-sky-200/70",
+                    "disabled:opacity-60 disabled:cursor-not-allowed",
+                    "shadow-sm transition-all",
+                  ].join(" ")}
+                  title="Deploy to Azure"
+                >
+                  {deploying ? (
+                    <>
+                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+                        <path d="M21 12a9 9 0 0 1-9 9" stroke="currentColor" strokeWidth="3" />
+                      </svg>
+                      Deploying…
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                        <path d="M12 2c3.5 0 6 2.5 6 6 0 3.2-2.2 6.4-5 8l-1 6-3-4-4-3 6-1c1.6-2.8 4.8-5 8-5 0-3.5-2.5-6-6-6z" />
+                      </svg>
+                      Deploy
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDestroy}
+                  disabled={destroying}
+                  className={[
+                    "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                    "bg-red-600 text-white hover:bg-red-700",
+                    "focus:outline-none focus:ring-4 focus:ring-red-200/70",
+                    "disabled:opacity-60 disabled:cursor-not-allowed",
+                    "shadow-sm transition-all",
+                  ].join(" ")}
+                  title="Destroy Azure resources"
                 >
                   {destroying ? "Destroying…" : "Destroy"}
                 </button>
