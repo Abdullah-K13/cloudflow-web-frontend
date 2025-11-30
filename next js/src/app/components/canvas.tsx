@@ -1809,13 +1809,19 @@ const CanvasInner = (
       const plan = buildPlan();
       const payload = buildDeploymentPayload(plan);
 
+      // Remove position from nodes before sending to deploy endpoint (keep it for database saves)
+      const deployPayload = {
+        ...payload,
+        nodes: payload.nodes.map(({ position, ...node }) => node)
+      };
+
       // Use appropriate API endpoint based on provider
       const apiBase = provider === "gcp" ? GCP_API_BASE : provider === "azure" ? AZURE_API_BASE : AWS_API_BASE;
       const endpoint = provider === "gcp" ? "/up" : provider === "azure" ? "/deploy" : "/deploy";
 
       // For GCP and Azure, wrap payload in {ir: {...}} format
       // For AWS, send IR directly (payload is already in IR format)
-      const requestBody = (provider === "gcp" || provider === "azure") ? { ir: payload } : payload;
+      const requestBody = (provider === "gcp" || provider === "azure") ? { ir: deployPayload } : deployPayload;
 
       const res = await fetch(`${apiBase}${endpoint}`, {
         method: "POST",

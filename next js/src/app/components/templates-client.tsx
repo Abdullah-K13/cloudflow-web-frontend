@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Search, Tag, Eye, X, Plus } from "lucide-react";
+import { Search, Tag, X, Plus, Cloud } from "lucide-react";
 
 // Exported so the server page can type its mock/fetcher
 export type Template = {
@@ -10,6 +10,7 @@ export type Template = {
   name: string;
   description: string;
   tags: Array<"aws" | "serverless" | "data" | "k8s" | string>;
+  provider?: string; // Cloud provider: aws, gcp, azure
   lastUpdated?: string; // ISO
 };
 
@@ -23,7 +24,6 @@ export default function TemplatesClient({ initialData }: Props) {
 
   const [search, setSearch] = useState("");
   const [tag, setTag] = useState<TagFilter>("all");
-  const [preview, setPreview] = useState<Template | null>(null);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -110,128 +110,93 @@ export default function TemplatesClient({ initialData }: Props) {
           <p className="mt-1 text-sm text-gray-500">Design your architecture from scratch.</p>
         </Link>
 
-        {filtered.map((t) => (
-          <article
-            key={t.id}
-            className="group flex flex-col rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-md"
-          >
-            <div className="mb-3 flex items-start justify-between">
-              <h3 className="max-w-[75%] truncate text-base font-semibold text-gray-900">
-                {t.name}
-              </h3>
-              <button
-                onClick={() => setPreview(t)}
-                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-700 transition-colors hover:border-teal-300 hover:text-teal-700"
-                aria-label={`Preview ${t.name}`}
-              >
-                <Eye className="h-3.5 w-3.5" />
-                Preview
-              </button>
-            </div>
+        {filtered.map((t) => {
+          // Get provider from template or infer from tags
+          const provider = (t.provider || t.tags.find(tag => 
+            ['aws', 'gcp', 'azure'].includes(tag.toLowerCase())
+          ))?.toLowerCase() as 'aws' | 'gcp' | 'azure' | undefined;
+          
+          // Provider colors
+          const getProviderStyles = (prov?: string) => {
+            switch (prov) {
+              case 'aws':
+                return 'bg-orange-50 border-orange-200 text-orange-700';
+              case 'gcp':
+                return 'bg-blue-50 border-blue-200 text-blue-700';
+              case 'azure':
+                return 'bg-cyan-50 border-cyan-200 text-cyan-700';
+              default:
+                return 'bg-gray-50 border-gray-200 text-gray-700';
+            }
+          };
 
-            <p className="line-clamp-3 text-sm text-gray-600">{t.description}</p>
+          // Filter out provider tags from other tags
+          const otherTags = t.tags.filter(tg => 
+            !['aws', 'gcp', 'azure'].includes(tg.toLowerCase())
+          );
 
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {t.tags.map((tg) => (
-                <span
-                  key={tg}
-                  className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
-                    tg === "aws"
-                      ? "bg-orange-100 text-orange-700"
-                      : tg === "serverless"
-                      ? "bg-teal-100 text-teal-700"
-                      : tg === "data"
-                      ? "bg-gray-100 text-gray-700"
-                      : "bg-gray-100 text-gray-700"
-                  }`}
-                >
-                  {String(tg).toUpperCase()}
+          return (
+            <article
+              key={t.id}
+              className="group relative flex flex-col rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-orange-300 hover:shadow-lg"
+            >
+              {/* Provider Badge - Top Right */}
+              {provider && (
+                <div className={`absolute top-4 right-4 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase ${getProviderStyles(provider)}`}>
+                  <Cloud className="h-3 w-3" />
+                  {provider}
+                </div>
+              )}
+
+              {/* Header */}
+              <div className="mb-3 pr-20">
+                <h3 className="text-base font-semibold text-gray-900 group-hover:text-orange-600 transition-colors">
+                  {t.name}
+                </h3>
+              </div>
+
+              {/* Description - Reduced */}
+              <p className="line-clamp-2 text-sm text-gray-600 mb-4">{t.description}</p>
+
+              {/* Tags - Only show non-provider tags */}
+              {otherTags.length > 0 && (
+                <div className="mt-auto flex flex-wrap gap-1.5 mb-4">
+                  {otherTags.slice(0, 2).map((tg) => (
+                    <span
+                      key={tg}
+                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                        tg === "serverless"
+                          ? "bg-teal-100 text-teal-700"
+                          : tg === "data"
+                          ? "bg-purple-100 text-purple-700"
+                          : tg === "k8s"
+                          ? "bg-indigo-100 text-indigo-700"
+                          : "bg-gray-100 text-gray-700"
+                      }`}
+                    >
+                      {String(tg).toUpperCase()}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="mt-auto flex items-center justify-between pt-3 border-t border-gray-100">
+                <span className="text-xs text-gray-400">
+                  {t.lastUpdated ? new Date(t.lastUpdated).toLocaleDateString() : "—"}
                 </span>
-              ))}
-            </div>
-
-            <div className="mt-4 flex items-center justify-between">
-              <span className="text-xs text-gray-400">
-                Updated {t.lastUpdated ? new Date(t.lastUpdated).toLocaleDateString() : "—"}
-              </span>
-              <Link
-  href={`/templates/${t.id}`}
-  className="inline-flex items-center rounded-xl bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-orange-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-200"
->
-  Use template
-</Link>
-            </div>
-          </article>
-        ))}
+                <Link
+                  href={`/templates/${t.id}`}
+                  className="inline-flex items-center rounded-xl bg-orange-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-orange-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-200"
+                >
+                  Use template
+                </Link>
+              </div>
+            </article>
+          );
+        })}
       </div>
 
-      {/* Preview Modal */}
-      {preview && (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/40 backdrop-blur-sm"
-          onClick={() => setPreview(null)}
-        >
-          <div
-            className="relative w-full max-w-lg scale-100 rounded-2xl border border-gray-200 bg-white p-6 shadow-xl transition-transform duration-200"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setPreview(null)}
-              className="absolute right-3 top-3 rounded-lg border border-gray-200 bg-white p-1 text-gray-500 transition-colors hover:border-orange-300 hover:text-orange-700"
-              aria-label="Close preview"
-            >
-              <X className="h-4 w-4" />
-            </button>
-
-            <h3 className="pr-8 text-lg font-semibold text-gray-900">{preview.name}</h3>
-            <p className="mt-2 text-sm text-gray-600">{preview.description}</p>
-
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {preview.tags.map((tg) => (
-                <span
-                  key={tg}
-                  className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
-                    tg === "aws"
-                      ? "bg-orange-100 text-orange-700"
-                      : tg === "serverless"
-                      ? "bg-teal-100 text-teal-700"
-                      : tg === "data"
-                      ? "bg-gray-100 text-gray-700"
-                      : "bg-gray-100 text-gray-700"
-                  }`}
-                >
-                  {String(tg).toUpperCase()}
-                </span>
-              ))}
-            </div>
-
-            {/* Placeholder “includes” section */}
-            <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50 p-3 text-sm text-gray-700">
-              <p className="mb-1 font-medium text-gray-800">What’s inside</p>
-              <ul className="list-inside list-disc text-gray-600">
-                <li>Opinionated Terraform layout</li>
-                <li>Tags, IAM roles, sensible defaults</li>
-                <li>Ready for Plan/Apply from the Builder</li>
-              </ul>
-            </div>
-
-            <div className="mt-5 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setPreview(null)}
-                className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:border-teal-300 hover:text-teal-700"
-              >
-                Close
-              </button>
-              <Link
-                href={`/pipelines/new?template=${encodeURIComponent(preview.id)}`}
-                className="inline-flex items-center rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-orange-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-200"
-              >
-                Use template
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   );
 }
