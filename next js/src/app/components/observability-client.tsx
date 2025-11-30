@@ -24,7 +24,7 @@ export type Deployment = {
   region: string;
   status: "draft" | "ready" | "deploying" | "deployed" | "failed" | string;
   startedAt: string; // ISO
-  durationSec: number;
+  durationSec: number | null; // null if deployment hasn't started
   commit?: string;
 };
 
@@ -115,15 +115,29 @@ export default function ObservabilityClient({ initialData }: Props) {
           // Use deployment_started_at if available, otherwise fall back to created_at
           const startedAt = (p as any).deployment_started_at ?? p.created_at ?? p.updated_at ?? new Date().toISOString();
           
-          // Use deployment_duration_sec if available (actual deployment duration)
-          // Otherwise calculate from created/updated (fallback for old pipelines)
-          let durationSec = (p as any).deployment_duration_sec;
-          if (durationSec === null || durationSec === undefined) {
-            const created = p.created_at ?? p.updated_at ?? new Date().toISOString();
-            const updated = p.updated_at ?? created;
-            const createdMs = new Date(created).getTime();
-            const updatedMs = new Date(updated).getTime();
-            durationSec = Math.max(0, (updatedMs - createdMs) / 1000);
+          // Duration should only be calculated if deployment has actually started
+          // Only show duration for pipelines that have been deployed, are deploying, or failed
+          let durationSec: number | null = null;
+          const hasDeploymentStarted = status === "deploying" || status === "deployed" || status === "failed";
+          
+          if (hasDeploymentStarted) {
+            // Use deployment_duration_sec if available (actual deployment duration from backend)
+            durationSec = (p as any).deployment_duration_sec;
+            
+            // If status is "deploying" and duration is not set yet, calculate live duration
+            if (status === "deploying" && (durationSec === null || durationSec === undefined)) {
+              const deploymentStartTime = (p as any).deployment_started_at;
+              if (deploymentStartTime) {
+                const startMs = new Date(deploymentStartTime).getTime();
+                const nowMs = Date.now();
+                durationSec = Math.max(0, (nowMs - startMs) / 1000);
+              }
+            }
+            
+            // If still no duration and status is deployed/failed, set to 0 (shouldn't happen but fallback)
+            if ((durationSec === null || durationSec === undefined) && (status === "deployed" || status === "failed")) {
+              durationSec = 0;
+            }
           }
 
           return {
@@ -155,6 +169,13 @@ export default function ObservabilityClient({ initialData }: Props) {
     };
 
     fetchDeployments();
+    
+    // Auto-refresh every 5 seconds to update duration for deploying pipelines
+    const intervalId = setInterval(fetchDeployments, 5000);
+    
+    return () => {
+      clearInterval(intervalId);
+    };
   }, []);
 
   const filtered = useMemo(() => {
@@ -458,7 +479,7 @@ export default function ObservabilityClient({ initialData }: Props) {
                   </td>
 
                   <td className="px-4 py-3 text-sm text-gray-700">
-                    {formatDuration(d.durationSec)}
+                    {d.durationSec !== null && d.durationSec !== undefined ? formatDuration(d.durationSec) : "—"}
                   </td>
 
                   <td className="px-4 py-3">

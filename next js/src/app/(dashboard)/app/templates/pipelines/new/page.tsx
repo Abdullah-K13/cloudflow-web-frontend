@@ -10,7 +10,7 @@ export default async function NewPipelineRedirect({
   const template = Array.isArray(sp.template) ? sp.template[0] : sp.template;
 
   if (template) {
-    redirect(`/templates/${template}`);
+    redirect(`/app/templates/${template}`);
   }
-  redirect("/templates");
+  redirect("/app/templates");
 }

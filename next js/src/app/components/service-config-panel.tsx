@@ -8,7 +8,17 @@ import {
   AWS_LAMBDA_ARCH,
   AWS_LAMBDA_MEMORY_SIZES,
   AWS_LAMBDA_TIMEOUTS,
+  AWS_REGIONS_OPTIONS,
+  GCP_REGIONS_OPTIONS,
+  AZURE_REGIONS_OPTIONS,
 } from "./awsOptions";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
 /** Base config with optional `details` for per-service settings */
 type ServiceConfig = {
@@ -346,6 +356,49 @@ const SelectInput = ({
   </select>
 );
 
+// Styled Region Select component matching platform design
+const RegionSelect = ({
+  value,
+  onValueChange,
+  options,
+  error,
+  id,
+  placeholder = "Select region",
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+  options: { value: string; label: string }[];
+  error?: string;
+  id?: string;
+  placeholder?: string;
+}) => (
+  <Select value={value} onValueChange={onValueChange}>
+    <SelectTrigger
+      id={id}
+      className={[
+        baseInputClass(error),
+        "h-auto min-h-[42px] cursor-pointer justify-between",
+        "hover:bg-white focus:bg-white",
+      ].join(" ")}
+      aria-invalid={!!error}
+      aria-describedby={error ? `${id}-error` : undefined}
+    >
+      <SelectValue placeholder={placeholder} className="text-black" />
+    </SelectTrigger>
+    <SelectContent className="max-h-[300px] rounded-2xl border-slate-200 shadow-lg !bg-white backdrop-blur-none">
+      {options.map((option) => (
+        <SelectItem 
+          key={option.value} 
+          value={option.value}
+          className="cursor-pointer bg-white hover:bg-orange-50 focus:bg-orange-50 focus:text-slate-900"
+        >
+          {option.label}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+);
+
 const NumberInput = ({
   value,
   onChange,
@@ -416,7 +469,7 @@ export default function ServiceConfigPanel({
     name: service.label ?? "",
     description: "",
     environment: "development",
-    region: "",
+    region: service.label?.startsWith("Azure") ? "eastus" : "",
   };
 
   const seeded = service.config ?? { ...baseDefault, details: defaultDetailsFor(service) };
@@ -426,6 +479,12 @@ export default function ServiceConfigPanel({
   // re-seed on service change
   useEffect(() => {
     const nextBase = service.config ?? { ...baseDefault, name: service.label ?? "" };
+    // Set default region based on service type if not already set
+    if (!nextBase.region || nextBase.region === "") {
+      if (service.label?.startsWith("Azure")) {
+        nextBase.region = "eastus";
+      }
+    }
     const next = service.config?.details ? service.config : { ...nextBase, details: defaultDetailsFor(service) };
 
     if (service.label === "AWS Lambda") {
@@ -444,6 +503,16 @@ export default function ServiceConfigPanel({
 
   const d = config.details || {};
   const brandTitle = service.label + " Configuration";
+  
+  // Check if service is AWS, GCP, or Azure (for region dropdown)
+  const isAWSService = service.label?.startsWith("AWS") ?? false;
+  const isGCPService = service.label?.startsWith("GCP") || 
+                       service.label === "Pub/Sub" || 
+                       service.label === "Cloud Run" ||
+                       service.label === "Cloud Storage" ||
+                       service.label === "Secret Manager" ||
+                       false;
+  const isAzureService = service.label?.startsWith("Azure") ?? false;
 
   const updateDetails = (patch: Record<string, any>) =>
     setConfig((c) => ({ ...c, details: { ...(c.details || {}), ...patch } }));
@@ -621,24 +690,64 @@ export default function ServiceConfigPanel({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label>Region (Base) *</Label>
-                  <TextInput
-                    id="baseRegion"
-                    value={config.region}
-                    onChange={(e) => setConfig({ ...config, region: e.target.value })}
-                    placeholder="e.g., us-east-1"
-                    error={errors.region}
-                  />
+                  {isAWSService ? (
+                    <RegionSelect
+                      id="baseRegion"
+                      value={config.region}
+                      onValueChange={(value) => setConfig({ ...config, region: value })}
+                      options={AWS_REGIONS_OPTIONS}
+                      error={errors.region}
+                      placeholder="Select region"
+                    />
+                  ) : isGCPService ? (
+                    <RegionSelect
+                      id="baseRegion"
+                      value={config.region}
+                      onValueChange={(value) => setConfig({ ...config, region: value })}
+                      options={GCP_REGIONS_OPTIONS}
+                      error={errors.region}
+                      placeholder="Select region"
+                    />
+                  ) : isAzureService ? (
+                    <RegionSelect
+                      id="baseRegion"
+                      value={config.region}
+                      onValueChange={(value) => setConfig({ ...config, region: value })}
+                      options={AZURE_REGIONS_OPTIONS}
+                      error={errors.region}
+                      placeholder="Select region"
+                    />
+                  ) : (
+                    <TextInput
+                      id="baseRegion"
+                      value={config.region}
+                      onChange={(e) => setConfig({ ...config, region: e.target.value })}
+                      placeholder="e.g., us-east-1"
+                      error={errors.region}
+                    />
+                  )}
                   <FieldError id="region-error-base" message={errors.region} />
                 </div>
                 <div>
                   <Label>Region (S3 override)</Label>
-                  <TextInput
-                    id="s3Region"
-                    value={d.region || ""}
-                    onChange={(e) => updateDetails({ region: e.target.value })}
-                    placeholder="e.g., us-east-1"
-                    error={errors.s3Region}
-                  />
+                  {isAWSService ? (
+                    <RegionSelect
+                      id="s3Region"
+                      value={d.region || ""}
+                      onValueChange={(value) => updateDetails({ region: value })}
+                      options={[{ value: "", label: "Use base region" }, ...AWS_REGIONS_OPTIONS]}
+                      error={errors.s3Region}
+                      placeholder="Use base region"
+                    />
+                  ) : (
+                    <TextInput
+                      id="s3Region"
+                      value={d.region || ""}
+                      onChange={(e) => updateDetails({ region: e.target.value })}
+                      placeholder="e.g., us-east-1"
+                      error={errors.s3Region}
+                    />
+                  )}
                   <FieldError id="s3Region-error" message={errors.s3Region} />
                 </div>
               </div>
@@ -2606,13 +2715,42 @@ export default function ServiceConfigPanel({
                     </div>
                     <div>
                       <Label>Region *</Label>
-                      <TextInput
-                        id="baseRegionTop"
-                        value={config.region}
-                        onChange={(e) => setConfig({ ...config, region: e.target.value })}
-                        placeholder="e.g., us-east-1"
-                        error={errors.region}
-                      />
+                      {isAWSService ? (
+                        <RegionSelect
+                          id="baseRegionTop"
+                          value={config.region}
+                          onValueChange={(value) => setConfig({ ...config, region: value })}
+                          options={AWS_REGIONS_OPTIONS}
+                          error={errors.region}
+                          placeholder="Select region"
+                        />
+                      ) : isGCPService ? (
+                        <RegionSelect
+                          id="baseRegionTop"
+                          value={config.region}
+                          onValueChange={(value) => setConfig({ ...config, region: value })}
+                          options={GCP_REGIONS_OPTIONS}
+                          error={errors.region}
+                          placeholder="Select region"
+                        />
+                      ) : isAzureService ? (
+                        <RegionSelect
+                          id="baseRegionTop"
+                          value={config.region}
+                          onValueChange={(value) => setConfig({ ...config, region: value })}
+                          options={AZURE_REGIONS_OPTIONS}
+                          error={errors.region}
+                          placeholder="Select region"
+                        />
+                      ) : (
+                        <TextInput
+                          id="baseRegionTop"
+                          value={config.region}
+                          onChange={(e) => setConfig({ ...config, region: e.target.value })}
+                          placeholder="e.g., us-east-1"
+                          error={errors.region}
+                        />
+                      )}
                       <FieldError id="region-error" message={errors.region} />
                     </div>
                   </div>

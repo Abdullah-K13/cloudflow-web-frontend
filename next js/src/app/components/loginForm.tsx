@@ -75,6 +75,36 @@ const Login = () => {
   // Get Google Client ID from environment variable
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
+  // Listen for Google OAuth errors
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleConsoleError = (event: ErrorEvent) => {
+      const errorMessage = event.message || "";
+      if (errorMessage.includes("origin is not allowed") || errorMessage.includes("client ID")) {
+        const currentOrigin = window.location.origin;
+        setErrorMsg(
+          `❌ Origin Error: "${currentOrigin}" is not authorized\n\n` +
+          `🔧 Fix Steps:\n` +
+          `1. Go to https://console.cloud.google.com/\n` +
+          `2. Navigate to: APIs & Services → Credentials\n` +
+          `3. Click your OAuth 2.0 Client ID\n` +
+          `4. Under "Authorized JavaScript origins", click "ADD URI"\n` +
+          `5. Add: ${currentOrigin}\n` +
+          `6. Click "SAVE"\n` +
+          `7. Wait 1-2 minutes, then refresh this page`
+        );
+      }
+    };
+
+    // Listen for unhandled errors
+    window.addEventListener("error", handleConsoleError);
+    
+    return () => {
+      window.removeEventListener("error", handleConsoleError);
+    };
+  }, []);
+
   // Load Google Identity Services script
   useEffect(() => {
     // Only run on client side
@@ -85,6 +115,11 @@ const Login = () => {
       console.warn("Google Client ID is not configured. Please set NEXT_PUBLIC_GOOGLE_CLIENT_ID in your .env.local file");
       return;
     }
+
+    // Log current origin for debugging
+    const currentOrigin = window.location.origin;
+    console.log("Current origin:", currentOrigin);
+    console.log("Make sure this origin is added to Google Cloud Console → Credentials → Authorized JavaScript origins");
 
     // Check if script is already loaded
     if (document.querySelector('script[src="https://accounts.google.com/gsi/client"]')) {
@@ -130,8 +165,17 @@ const Login = () => {
                 type: 'standard',
               });
               setShowFallbackButton(false); // Hide fallback button if Google button rendered
-            } catch (renderError) {
+            } catch (renderError: any) {
               console.warn("Could not render Google button, using fallback:", renderError);
+              // Check if it's an origin error
+              if (renderError?.message?.includes("origin") || renderError?.message?.includes("client ID")) {
+                const currentOrigin = window.location.origin;
+                setErrorMsg(
+                  `Origin not allowed error. Current origin: ${currentOrigin}\n\n` +
+                  `Fix: Go to Google Cloud Console → APIs & Services → Credentials → Your OAuth Client ID\n` +
+                  `Add "${currentOrigin}" to "Authorized JavaScript origins" and save.`
+                );
+              }
               setShowFallbackButton(true);
             }
           }
@@ -153,7 +197,11 @@ const Login = () => {
     };
     script.onerror = () => {
       console.error("Failed to load Google Identity Services script");
-      setErrorMsg("Failed to load Google sign-in. Please check your internet connection.");
+      const currentOrigin = window.location.origin;
+      setErrorMsg(
+        `Failed to load Google sign-in. Current origin: ${currentOrigin}\n` +
+        `Make sure ${currentOrigin} is added to Google Cloud Console → Credentials → Authorized JavaScript origins`
+      );
     };
     document.head.appendChild(script);
 
@@ -253,13 +301,17 @@ const Login = () => {
       console.error("Google sign in error:", error);
       setGoogleLoading(false);
       
-      // Provide helpful error message
+      // Provide helpful error message with current origin
+      const currentOrigin = window.location.origin;
       setErrorMsg(
-        "Google sign-in failed. Please check:\n" +
-        "1. OAuth consent screen is configured in Google Cloud Console\n" +
-        "2. Your email is added as a test user (if app is in testing mode)\n" +
-        "3. Authorized origins include http://localhost:3000\n" +
-        "4. Try refreshing the page and signing in again"
+        `Google sign-in failed. Current origin: ${currentOrigin}\n\n` +
+        `Please check Google Cloud Console:\n` +
+        `1. Go to APIs & Services → Credentials\n` +
+        `2. Click your OAuth 2.0 Client ID\n` +
+        `3. Under "Authorized JavaScript origins", add: ${currentOrigin}\n` +
+        `4. Click Save and wait 1-2 minutes\n` +
+        `5. Also verify OAuth consent screen is configured\n` +
+        `6. If app is in "Testing" mode, add your email as a test user`
       );
     }
   };
@@ -441,7 +493,7 @@ const Login = () => {
                   </Button>
                 )}
 
-                <Button variant="outline" className="w-full" type="button">
+                {/* <Button variant="outline" className="w-full" type="button">
                   <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24">
                     <path fill="currentColor" d="M23.04 10.93c0-1.03-.09-2.02-.26-2.98H12v5.64h6.16c-.27 1.43-1.07 2.64-2.28 3.46v2.87h3.69c2.16-1.99 3.41-4.92 3.41-8.38l.06-.61z"/>
                     <path fill="currentColor" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.69-2.87c-1.07.72-2.44 1.15-4.24 1.15-3.26 0-6.02-2.2-7-5.16H1.18v2.96C3.13 21.3 7.36 24 12 24z"/>
@@ -449,7 +501,7 @@ const Login = () => {
                     <path fill="currentColor" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C18.05 1.19 15.24 0 12 0 7.36 0 3.13 2.7 1.18 6.83L5 9.79c.98-2.96 3.74-5.16 7-5.16l-.04.12z"/>
                   </svg>
                   Continue with Microsoft
-                </Button>
+                </Button> */}
               </div>
 
               {/* Sign Up Link */}

@@ -132,7 +132,7 @@ export default function TemplatesPage() {
           </p>
         </div>
         <Link
-          href="/pipelines/new"
+          href="/workplace"
           className="group inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-orange-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-200"
         >
           <Plus className="h-4 w-4 transition-transform duration-200 group-hover:rotate-90" />
@@ -184,7 +184,7 @@ export default function TemplatesPage() {
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {/* Blank starter */}
         <Link
-          href="/pipelines/new"
+          href="/workplace"
           className="group block rounded-2xl border border-dashed border-gray-300 bg-white p-6 text-center transition-all duration-200 hover:border-orange-300 hover:bg-orange-50/40 hover:shadow-sm"
         >
           <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-teal-600 text-white transition-transform duration-200 group-hover:scale-105">
@@ -239,7 +239,7 @@ export default function TemplatesPage() {
                 Updated {t.lastUpdated ? new Date(t.lastUpdated).toLocaleDateString() : "—"}
               </span>
               <Link
-                href={`/templates/${t.id}`}
+                href={`/app/templates/${t.id}`}
                 className="inline-flex items-center rounded-xl bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-orange-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-200"
               >
                 Use template
@@ -306,7 +306,7 @@ export default function TemplatesPage() {
                 Close
               </button>
               <Link
-                href={`/pipelines/new?template=${encodeURIComponent(preview.id)}`}
+                href={`/app/templates/${preview.id}`}
                 className="inline-flex items-center rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-orange-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-200"
               >
                 Use template
