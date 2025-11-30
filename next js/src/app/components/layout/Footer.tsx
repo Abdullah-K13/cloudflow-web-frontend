@@ -4,43 +4,12 @@ import Link from "next/link";
 import { Cloud, Github, Twitter, Linkedin, Mail } from "lucide-react";
 
 const Footer = () => {
-  const footerSections = [
-    {
-      title: "Product",
-      links: [
-        { name: "Templates", href: "/templates" },
-        { name: "Documentation", href: "/docs" },
-        { name: "Help Center", href: "/help" },
-        { name: "API Reference", href: "/docs/api" },
-      ],
-    },
-    {
-      title: "Company",
-      links: [
-        { name: "About", href: "/about" },
-        { name: "Blog", href: "/blog" },
-        { name: "Careers", href: "/careers" },
-        { name: "Contact", href: "/contact" },
-      ],
-    },
-    {
-      title: "Resources",
-      links: [
-        { name: "Community", href: "/community" },
-        { name: "Tutorials", href: "/tutorials" },
-        { name: "Examples", href: "/examples" },
-        { name: "Status", href: "/status" },
-      ],
-    },
-    {
-      title: "Legal",
-      links: [
-        { name: "Privacy Policy", href: "/privacy" },
-        { name: "Terms of Service", href: "/terms" },
-        { name: "Security", href: "/security" },
-        { name: "Cookie Policy", href: "/cookies" },
-      ],
-    },
+  const footerLinks = [
+    { name: "Templates", href: "/templates" },
+    { name: "Documentation", href: "/docs" },
+    { name: "Help", href: "/help" },
+    { name: "Privacy", href: "/privacy" },
+    { name: "Terms", href: "/terms" },
   ];
 
   const socialLinks = [
@@ -51,68 +20,48 @@ const Footer = () => {
   ];
 
   return (
-    <footer className="bg-card border-t border-border">
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        {/* Main Footer Content */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-8">
-          {/* Logo and Description */}
-          <div className="lg:col-span-2">
-            <Link href="/" className="flex items-center space-x-2 mb-4">
-              <Cloud className="h-8 w-8 text-primary" />
-              <span className="text-xl font-semibold text-foreground">CloudFlow</span>
-            </Link>
-            <p className="text-muted-foreground text-sm leading-relaxed mb-6">
-              Visualize, build, and deploy multi-cloud architectures with ease. 
-              Drag-and-drop your way to scalable infrastructure.
-            </p>
-            <div className="flex space-x-4">
-              {socialLinks.map((social) => (
-                <a
-                  key={social.name}
-                  href={social.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-muted-foreground hover:text-primary transition-smooth"
-                  aria-label={social.name}
-                >
-                  <social.icon className="h-5 w-5" />
-                </a>
-              ))}
-            </div>
+    <footer className="bg-white border-t border-slate-200">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex flex-col items-center space-y-6">
+          {/* Logo */}
+          <Link href="/" className="flex items-center space-x-2 group">
+            <Cloud className="h-6 w-6 text-primary group-hover:scale-110 transition-all" />
+            <span className="text-lg font-semibold text-slate-900">CloudFlow</span>
+          </Link>
+
+          {/* Links */}
+          <nav className="flex flex-wrap items-center justify-center gap-6 text-sm">
+            {footerLinks.map((link) => (
+              <Link
+                key={link.name}
+                href={link.href}
+                className="text-slate-600 hover:text-primary transition-colors"
+              >
+                {link.name}
+              </Link>
+            ))}
+          </nav>
+
+          {/* Social Icons */}
+          <div className="flex items-center space-x-5">
+            {socialLinks.map((social) => (
+              <a
+                key={social.name}
+                href={social.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:opacity-80 transition-all"
+                aria-label={social.name}
+              >
+                <social.icon className="h-5 w-5" />
+              </a>
+            ))}
           </div>
 
-          {/* Footer Links */}
-          {footerSections.map((section) => (
-            <div key={section.title} className="lg:col-span-1">
-              <h3 className="text-sm font-semibold text-foreground mb-4">
-                {section.title}
-              </h3>
-              <ul className="space-y-3">
-                {section.links.map((link) => (
-                  <li key={link.name}>
-                    <Link
-                      href={link.href}
-                      className="text-sm text-muted-foreground hover:text-primary transition-smooth"
-                    >
-                      {link.name}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-
-        {/* Bottom Bar */}
-        <div className="mt-12 pt-8 border-t border-border">
-          <div className="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
-            <p className="text-sm text-muted-foreground">
-              © 2025 CloudFlow. All rights reserved.
-            </p>
-            {/* <div className="flex items-center space-x-6 text-sm text-muted-foreground">
-              <span>Built with ❤️ for developers</span>
-            </div> */}
-          </div>
+          {/* Copyright */}
+          <p className="text-xs text-slate-500">
+            © 2025 CloudFlow. All rights reserved.
+          </p>
         </div>
       </div>
     </footer>
