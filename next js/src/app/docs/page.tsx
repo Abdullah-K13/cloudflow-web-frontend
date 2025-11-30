@@ -1183,7 +1183,7 @@ Tips and recommendations for using CloudFlow effectively.
                                   Browse our library of pre-built templates or start with a blank canvas.
                                 </p>
                                 <Button size="sm" variant="outline" className="btn-use-template" asChild>
-                                  <Link href="/templates">
+                                  <Link href="/login">
                                     Browse Templates
                                   </Link>
                                 </Button>
@@ -1202,7 +1202,7 @@ Tips and recommendations for using CloudFlow effectively.
                                   Use our drag-and-drop interface to customize your architecture and deploy with one click.
                                 </p>
                                 <Button size="sm" variant="outline" className="btn-use-template" asChild>
-                                  <Link href="/workplace">
+                                  <Link href="/login">
                                     Open Canvas
                                   </Link>
                                 </Button>
