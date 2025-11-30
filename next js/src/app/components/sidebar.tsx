@@ -41,7 +41,7 @@ export default function Sidebar() {
       {/* Top */}
       <nav className="flex w-full flex-col items-center gap-5">
         {/* External Home */}
-        <IconLink href="http://localhost:8080" label="Home" accent="teal" external>
+        <IconLink href="http://localhost:3000" label="Home" accent="teal" external>
           <Home className="h-5 w-5" />
         </IconLink>
 

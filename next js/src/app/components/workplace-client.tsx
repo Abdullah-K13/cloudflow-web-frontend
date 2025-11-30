@@ -84,9 +84,15 @@ export default function WorkplaceClient({ pipelineId: propPipelineId }: { pipeli
     // Check if this is a new pipeline (no saved pipeline ID in URL, route params, or props)
     const urlParams = new URLSearchParams(window.location.search);
     const queryPipelineId = urlParams.get("id");
+    const pipelineName = urlParams.get("name");
     const finalPipelineId = propPipelineId || queryPipelineId;
     setCurrentPipelineId(finalPipelineId);
     setIsNewPipeline(!finalPipelineId);
+    
+    // Set initial pipeline name if provided
+    if (pipelineName) {
+      setProjectName(decodeURIComponent(pipelineName));
+    }
   }, [propPipelineId]);
 
   // Ensure sidebar is always visible
@@ -471,6 +477,7 @@ export default function WorkplaceClient({ pipelineId: propPipelineId }: { pipeli
                 currentPipelineId={currentPipelineId}
                 initialEdges={initialEdges}
                 initialProvider={initialProvider}
+                initialPipelineName={projectName}
                 onPipelineCreated={(pipelineId) => {
                   console.log("Pipeline auto-created, updating currentPipelineId:", pipelineId);
                   setCurrentPipelineId(pipelineId);

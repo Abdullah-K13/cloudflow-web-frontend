@@ -30,7 +30,7 @@ import { ServiceItem, CanvasProps } from "./types";
 import LeftPanel from "./leftpanel";
 
 /* ---- node component & palette (unchanged) ---- */
-const ServiceNode: React.FC<{ data: { label: string; img: string; cost?: number } }> = ({ data }) => {
+const ServiceNode: React.FC<{ data: { label: string; img: string; cost?: number; costIsEstimated?: boolean } }> = ({ data }) => {
   const c = { base: "#fff", border: "#E2E8F0", text: "#334155" };
   return (
     <div
@@ -84,7 +84,11 @@ const ServiceNode: React.FC<{ data: { label: string; img: string; cost?: number 
         alignSelf: "flex-start"
       }}>
         <DollarSign size={10} />
-        <span>{data.cost !== undefined ? `$${data.cost.toFixed(2)}/mo` : "Calc..."}</span>
+        <span>
+          {data.cost !== undefined 
+            ? `$${data.cost.toFixed(2)}/mo${data.costIsEstimated ? " (est.)" : ""}`
+            : "Calc..."}
+        </span>
       </div>
     </div>
   );
@@ -465,10 +469,11 @@ function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
   if (kind === "aws.lambda") {
     return {
       runtime: d.runtime || "python3.12",
-      memory: Number(d.memory ?? d.memory_mb ?? 256),
-      timeout: Number(d.timeout ?? d.timeout_s ?? 30),
+      memory: Number(d.memory ?? d.memoryMB ?? d.memory_mb ?? 256),
+      timeout: Number(d.timeout ?? d.timeoutSec ?? d.timeout_s ?? 30),
       handler: d.handler || "app.lambda_handler",
       codeUri: d.codeUri || d.package_path || "src/processor",
+      physicalName: d.lambda_name || d.functionName || d.physicalName || undefined,
     };
   }
   if (kind === "aws.s3") {
@@ -476,72 +481,103 @@ function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
       versioning: d.versioning !== undefined ? !!d.versioning : true,
       // turn on EventBridge if the bucket has any outgoing edges (we set this later)
       eventBridge: !!d.eventBridge,
+      physicalName: d.bucketName || d.physicalName || undefined,
     };
   }
   if (kind === "aws.sqs") {
     return {
-      visibilityTimeout: Number(d.visibilityTimeout ?? 60),
-      dlq: d.dlq ?? undefined,
-      physicalName: d.physicalName ?? undefined,
+      visibilityTimeout: Number(d.visibilityTimeout ?? d.visibilityTimeoutSec ?? 60),
+      dlq: d.dlq ?? d.deadLetterTargetArn ?? undefined,
+      physicalName: d.queueName || d.physicalName || undefined,
     };
   }
   if (kind === "aws.sns") {
     return {
       displayName: d.displayName ?? undefined,
-      physicalName: d.physicalName ?? undefined,
+      physicalName: d.topicName || d.physicalName || undefined,
     };
   }
   if (kind === "aws.events.rule") {
     return {
       pattern: d.pattern ?? undefined,
+      schedule: d.schedule || undefined,
+      ruleName: d.ruleName || undefined,
+      targets: d.targets || undefined,
+      physicalName: d.ruleName || undefined,
     };
   }
   if (kind === "aws.apigw") {
     return {
-      apiName: d.apiName ?? undefined,
+      restApiName: d.restApiName || d.apiName || d.api_name || undefined,
+      apiName: d.restApiName || d.apiName || d.api_name || undefined,
+      description: d.description || undefined,
+      deploymentStage: d.deploymentStage || "prod",
+      physicalName: d.restApiName || d.apiName || d.api_name || undefined,
     };
   }
   if (kind === "aws.dynamodb") {
+    // Handle partitionKey and sortKey which might be objects with name and type
+    const partitionKeyObj = d.partitionKey;
+    const sortKeyObj = d.sortKey;
+    const partitionKey = typeof partitionKeyObj === 'object' ? partitionKeyObj?.name : (partitionKeyObj || "pk");
+    const sortKey = typeof sortKeyObj === 'object' ? sortKeyObj?.name : sortKeyObj;
+    
     return {
-      partitionKey: d.partitionKey ?? "pk",
-      sortKey: d.sortKey ?? undefined,
+      partitionKey: partitionKey,
+      sortKey: sortKey,
       billing: d.billing ?? "PAY_PER_REQUEST",
       stream: d.stream !== undefined ? !!d.stream : true,
-      physicalName: d.physicalName ?? undefined,
+      physicalName: d.tableName || d.physicalName || undefined,
     };
   }
   if (kind === "aws.sfn") {
     return {
-      physicalName: d.physicalName ?? undefined,
+      stateMachineName: d.stateMachineName || undefined,
+      definition: d.definition || undefined,
+      physicalName: d.stateMachineName || d.physicalName || undefined,
     };
   }
   if (kind === "aws.kinesis") {
     return {
-      shards: d.shards ?? 1,
-      physicalName: d.physicalName ?? undefined,
+      shards: d.shards ?? d.shardCount ?? 1,
+      physicalName: d.streamName || d.physicalName || undefined,
     };
   }
   // --- NEW SERVICES ---
   if (kind === "aws.ec2") {
     return {
       instanceType: d.instanceType || "t3.micro",
+      instanceName: d.instanceName || undefined,
       ami: d.ami || undefined,
-      physicalName: d.physicalName ?? undefined,
+      keyName: d.keyName || undefined,
+      securityGroups: Array.isArray(d.securityGroups) ? d.securityGroups : (d.securityGroups ? [d.securityGroups] : undefined),
+      physicalName: d.instanceName || d.physicalName || undefined,
     };
   }
   if (kind === "aws.rds") {
     return {
       engine: d.engine || "postgres",
-      instanceClass: d.dbClass || "db.t3.micro",
-      allocatedStorage: Number(d.storage || 20),
+      engineVersion: d.engineVersion || "16.3",
+      instanceClass: d.instanceClass || d.dbClass || "db.t3.micro",
+      allocatedStorage: Number(d.allocatedStorage || d.storage || 20),
       multiAZ: !!d.multiAZ,
-      physicalName: d.dbIdentifier ?? undefined,
+      masterUsername: d.masterUsername || "admin",
+      masterPassword: d.masterPassword || undefined,
+      physicalName: d.instanceIdentifier || d.dbIdentifier || undefined,
     };
   }
   if (kind === "aws.ecs") {
     return {
       launchType: d.launchType || "FARGATE",
-      physicalName: d.clusterName ?? undefined,
+      clusterName: d.clusterName || undefined,
+      serviceName: d.serviceName || undefined,
+      taskDefinition: d.taskDefinition || {
+        cpu: d.cpu || "256",
+        memory: d.memory || "512",
+        image: d.image || "nginx:latest"
+      },
+      desiredCount: d.desiredCount || 1,
+      physicalName: d.clusterName || undefined,
     };
   }
   if (kind === "aws.ecr") {
@@ -582,8 +618,11 @@ function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
   }
   if (kind === "aws.cloudfront") {
     return {
+      distributionName: d.distributionName || undefined,
+      originDomain: d.originDomain || undefined,
       priceClass: d.priceClass || "PriceClass_100",
-      physicalName: d.distributionId ?? undefined,
+      enabled: d.enabled !== undefined ? d.enabled : true,
+      physicalName: d.distributionName || d.distributionId || undefined,
     };
   }
   // GCP Services
@@ -598,6 +637,7 @@ function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
     return {
       topicName: d.topicName || undefined,
       labels: d.labels || {},
+      physicalName: d.topicName || undefined,
     };
   }
   if (kind === "gcp.run") {
@@ -614,22 +654,27 @@ function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
   }
   if (kind === "gcp.secretmanager") {
     return {
+      secretId: d.secretId || undefined,
       secretValue: d.secretValue || undefined,
       labels: d.labels || {},
+      physicalName: d.secretId || undefined,
     };
   }
   if (kind === "gcp.firestore") {
     return {
-      locationId: d.locationId || "us-central",
-      databaseId: d.databaseId || "(default)",
+      locationId: d.locationId || "nam5",
+      databaseId: d.databaseName || d.databaseId || "(default)",
+      databaseName: d.databaseName || d.databaseId || "(default)",
     };
   }
   // Azure Services
   if (kind === "azure.storage") {
     return {
+      accountName: d.accountName || undefined,
       accountKind: d.accountKind || "StorageV2",
       sku: d.sku || "Standard_LRS",
       containerName: d.containerName || undefined,
+      physicalName: d.accountName || undefined,
     };
   }
   if (kind === "azure.servicebus") {
@@ -637,6 +682,7 @@ function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
       sku: d.sku || "Basic",
       queueName: d.queueName || undefined,
       partition: d.partition !== undefined ? !!d.partition : false,
+      physicalName: d.queueName || undefined,
     };
   }
   if (kind === "azure.containerapp") {
@@ -653,22 +699,31 @@ function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
       adminUsername: d.adminUsername || "azureuser",
       adminPassword: d.adminPassword || undefined,
       osType: d.osType || "Linux",
+      imagePublisher: d.imagePublisher || "Canonical",
+      imageOffer: d.imageOffer || "0001-com-ubuntu-server-jammy",
+      imageSku: d.imageSku || "22_04-lts-gen2",
     };
   }
   if (kind === "azure.functionapp") {
     return {
       sku: d.sku || "Y1",
+      runtime: d.runtime || "python",
+      functionsVersion: d.functionsVersion || "~4",
     };
   }
   if (kind === "azure.sql") {
     return {
+      serverName: d.serverName || undefined,
       databaseName: d.databaseName || undefined,
+      adminLogin: d.adminLogin || "sqladmin",
+      adminPassword: d.adminPassword || undefined,
       serviceTier: d.sku?.name || d.serviceTier || "S0",
       sku: d.sku || { name: "S0", tier: "Standard" },
     };
   }
   if (kind === "azure.cosmosdb") {
     return {
+      kind: d.kind || "GlobalDocumentDB",
       databaseName: d.databaseName || undefined,
       containerName: d.containerName || undefined,
       partitionKey: d.partitionKey || "/id",
@@ -684,10 +739,15 @@ function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
   if (kind === "azure.keyvault") {
     return {
       tenantId: d.tenantId || undefined,
+      vaultName: d.vaultName || undefined,
+      physicalName: d.vaultName || undefined,
     };
   }
   if (kind === "azure.appinsights") {
-    return {}; // No required props
+    return {
+      applicationType: d.applicationType || "web",
+      ingestionMode: d.ingestionMode || "ApplicationInsights",
+    };
   }
   if (kind === "azure.vnet") {
     return {
@@ -715,7 +775,7 @@ const makeDefaultConfig = (label: string) => ({
 /* --------------------- component --------------------- */
 
 const CanvasInner = (
-  { items, updateItemPosition, onSelectedNodesChange, onCanvasNodesChange, currentPipelineId, onPipelineCreated, initialEdges, initialProvider }: CanvasProps,
+  { items, updateItemPosition, onSelectedNodesChange, onCanvasNodesChange, currentPipelineId, onPipelineCreated, initialEdges, initialProvider, initialPipelineName }: CanvasProps,
   ref: React.Ref<{ getPlan: () => Plan; getPrompt: () => string; buildDeploymentPayload: (plan: Plan) => any; getProvider: () => Provider }>
 ) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -733,6 +793,7 @@ const CanvasInner = (
       setProvider(initialProvider);
     }
   }, [initialProvider]);
+  
   const currentServices = React.useMemo<ServiceItem[]>(() => {
     switch (provider) {
       case "gcp":
@@ -800,6 +861,39 @@ const CanvasInner = (
     })));
   }, [nodes, onCanvasNodesChange]);
 
+  // Create pipeline when canvas opens (if it's a new pipeline with a name)
+  useEffect(() => {
+    if (!currentPipelineId && initialPipelineName) {
+      // Create pipeline immediately when canvas opens with a name
+      ensurePipelineExists();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
+
+  // Auto-save pipeline periodically when nodes or edges change
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    // Clear existing timeout
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    // Only auto-save if pipeline exists or can be created
+    if (currentPipelineId || initialPipelineName) {
+      // Debounce auto-save: wait 3 seconds after last change
+      autoSaveTimeoutRef.current = setTimeout(() => {
+        autoSavePipeline();
+      }, 3000);
+    }
+
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, edges, provider, currentPipelineId, initialPipelineName]);
+
   const onConnect = useCallback(
     (params: Connection | Edge) => {
       const srcNode = nodes.find((n) => n.id === params.source);
@@ -849,31 +943,37 @@ const CanvasInner = (
       const snappedX = Math.round(position.x / gridSize) * gridSize;
       const snappedY = Math.round(position.y / gridSize) * gridSize;
 
-      setNodes((nds) => {
-        const newNode = {
-          id: newId,
-          type: svc.id,
-          position: { x: snappedX, y: snappedY },
-          data: {
+      const newNode = {
+        id: newId,
+        type: svc.id,
+        position: { x: snappedX, y: snappedY },
+        data: {
+          label: svc.label,
+          img: svc.img,
+          service: {
+            id: newId,
             label: svc.label,
             img: svc.img,
-            service: {
-              id: newId,
-              label: svc.label,
-              img: svc.img,
-              x: snappedX,
-              y: snappedY,
-              config: makeDefaultConfig(svc.label),
-            } as ServiceItem,
-            selected: true,
-            cost: 0, // Init cost
-          },
-        };
-        // Trigger cost fetch for the new node
-        setTimeout(() => fetchNodeCost(newNode as any), 100);
-        return nds.concat(newNode);
-      });
+            x: snappedX,
+            y: snappedY,
+            config: makeDefaultConfig(svc.label),
+          } as ServiceItem,
+          selected: true,
+          cost: 0, // Init cost
+        },
+      };
+      
+      setNodes((nds) => nds.concat(newNode));
       onSelectedNodesChange?.([{ id: newId, type: svc.id }]);
+      
+      // Fetch cost after node is added (fetchNodeCost will be available via closure)
+      setTimeout(() => {
+        // Use a type assertion to avoid dependency issue - fetchNodeCost is defined later but available via closure
+        const fetchFn = (fetchNodeCost as any);
+        if (typeof fetchFn === 'function') {
+          fetchFn(newNode as any);
+        }
+      }, 100);
     },
     [setNodes, onSelectedNodesChange, currentServices]
   );
@@ -895,76 +995,255 @@ const CanvasInner = (
   const [optimizationSuggestions, setOptimizationSuggestions] = useState<any[]>([]);
   const [totalSavings, setTotalSavings] = useState(0);
 
-  // Fetch cost for a single node (simple estimate)
-  const fetchNodeCost = async (node: Node) => {
+  /* ----------------- API helpers ----------------- */
+  // Use the same base URL pattern as apiClient
+  const API_BASE =
+    typeof window === "undefined"
+      ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+      : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+  const AWS_API_BASE = `${API_BASE}/aws`;
+  const GCP_API_BASE = `${API_BASE}/gcp`;
+  const AZURE_API_BASE = `${API_BASE}/azure`;
+
+  // Helper to get access token from localStorage
+  const getAccessToken = (): string | null => {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem("access_token");
+  };
+
+  // Helper to create headers with auth if token exists
+  const getHeaders = (includeAuth: boolean = false): HeadersInit => {
+    const headers: HeadersInit = { "Content-Type": "application/json" };
+    if (includeAuth) {
+      const token = getAccessToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+    }
+    return headers;
+  };
+
+  // Map node type to pricing API service name for all cloud providers
+  const getPricingServiceName = (nodeType: string, cloudProvider: Provider): string | null => {
+    const typeMap: Record<string, Record<Provider, string>> = {
+      // AWS Services
+      "lambda": { aws: "lambda", gcp: "cloud_functions", azure: "functions" },
+      "ec2": { aws: "ec2", gcp: "compute_engine", azure: "vm" },
+      "s3": { aws: "s3", gcp: "cloud_storage", azure: "blob_storage" },
+      "dynamodb": { aws: "dynamodb", gcp: "firestore", azure: "cosmosdb" },
+      "rds": { aws: "rds", gcp: "cloud_sql", azure: "sql" },
+      "sqs": { aws: "sqs", gcp: "pubsub", azure: "servicebus" },
+      "sns": { aws: "sns", gcp: "pubsub", azure: "servicebus" },
+      "apigateway": { aws: "apigw", gcp: "api_gateway", azure: "apimanagement" },
+      "kinesis": { aws: "kinesis", gcp: "pubsub", azure: "servicebus" },
+      "sfn": { aws: "sfn", gcp: "workflows", azure: "logic_apps" },
+      "events_rule": { aws: "events", gcp: "cloud_scheduler", azure: "eventgrid" },
+      "cloudfront": { aws: "cloudfront", gcp: "cloud_cdn", azure: "cdn" },
+      "ecs": { aws: "ecs", gcp: "cloud_run", azure: "containerapp" },
+      "ecr": { aws: "ecr", gcp: "artifact_registry", azure: "container_registry" },
+      "secretsmanager": { aws: "secretsmanager", gcp: "secret_manager", azure: "keyvault" },
+      "cognito": { aws: "cognito", gcp: "identity_platform", azure: "active_directory" },
+      "vpc": { aws: "vpc", gcp: "vpc", azure: "vnet" },
+      "cloudwatch": { aws: "cloudwatch", gcp: "monitoring", azure: "appinsights" },
+      "elasticache": { aws: "elasticache", gcp: "memorystore", azure: "redis_cache" },
+      
+      // GCP Services
+      "gcp-storage": { aws: "s3", gcp: "cloud_storage", azure: "blob_storage" },
+      "pubsub": { aws: "sns", gcp: "pubsub", azure: "servicebus" },
+      "cloud-run": { aws: "ecs", gcp: "cloud_run", azure: "containerapp" },
+      "secret-manager": { aws: "secretsmanager", gcp: "secret_manager", azure: "keyvault" },
+      "firestore": { aws: "dynamodb", gcp: "firestore", azure: "cosmosdb" },
+      
+      // Azure Services
+      "azure.storage": { aws: "s3", gcp: "cloud_storage", azure: "blob_storage" },
+      "azure.servicebus": { aws: "sqs", gcp: "pubsub", azure: "servicebus" },
+      "azure.containerapp": { aws: "ecs", gcp: "cloud_run", azure: "containerapp" },
+      "azure.vm": { aws: "ec2", gcp: "compute_engine", azure: "vm" },
+      "azure.functionapp": { aws: "lambda", gcp: "cloud_functions", azure: "functions" },
+      "azure.sql": { aws: "rds", gcp: "cloud_sql", azure: "sql" },
+      "azure.cosmosdb": { aws: "dynamodb", gcp: "firestore", azure: "cosmosdb" },
+      "azure.apimanagement": { aws: "apigw", gcp: "api_gateway", azure: "apimanagement" },
+      "azure.keyvault": { aws: "secretsmanager", gcp: "secret_manager", azure: "keyvault" },
+      "azure.appinsights": { aws: "cloudwatch", gcp: "monitoring", azure: "appinsights" },
+      "azure.vnet": { aws: "vpc", gcp: "vpc", azure: "vnet" },
+    };
+
+    const mapping = typeMap[nodeType];
+    if (!mapping) return null;
+    return mapping[cloudProvider] || null;
+  };
+
+  // Transform service config to pricing API format
+  const transformConfigForPricing = (kind: string, config: any, cloudProvider: Provider): Record<string, any> => {
+    const details = config?.details || {};
+    const normalized = normalizeToDesiredProps(kind, details);
+    const pricingConfig: Record<string, any> = {};
+
+    // AWS Lambda / GCP Cloud Functions / Azure Functions
+    if (kind === "aws.lambda" || kind === "gcp.run" || kind === "azure.functionapp") {
+      if (normalized.memory) pricingConfig.memory = normalized.memory;
+      if (normalized.timeout) pricingConfig.timeout = normalized.timeout;
+      // Add invocations if available (default to 100K for estimate)
+      pricingConfig.invocations = details.invocations || details.estimated_invocations || 100000;
+      // Add estimated_duration if available (defaults to timeout/2)
+      pricingConfig.estimated_duration = details.estimated_duration || (normalized.timeout ? normalized.timeout / 2 : 1.5);
+    }
+
+    // AWS EC2 / GCP Compute Engine / Azure VM
+    if (kind === "aws.ec2" || kind === "gcp.run" || kind === "azure.vm") {
+      if (normalized.instanceType) pricingConfig.instance_type = normalized.instanceType;
+      if (normalized.vmSize) pricingConfig.size = normalized.vmSize;
+      pricingConfig.hours = details.hours || 730; // Default to monthly hours
+    }
+
+    // AWS S3 / GCP Cloud Storage / Azure Blob Storage
+    if (kind === "aws.s3" || kind === "gcp.storage" || kind === "azure.storage") {
+      pricingConfig.storage_gb = details.storage_gb || details.storage || 1;
+      if (details.requests) pricingConfig.requests = details.requests;
+    }
+
+    // AWS DynamoDB
+    if (kind === "aws.dynamodb") {
+      if (normalized.billing === "PROVISIONED") {
+        pricingConfig.billing = "PROVISIONED";
+        pricingConfig.rcu = details.rcu || details.read_capacity_units || 10;
+        pricingConfig.wcu = details.wcu || details.write_capacity_units || 10;
+      } else {
+        pricingConfig.billing = "PAY_PER_REQUEST";
+      }
+    }
+
+    // AWS RDS / Azure SQL
+    if (kind === "aws.rds" || kind === "azure.sql") {
+      if (normalized.instanceClass) pricingConfig.instance_class = normalized.instanceClass;
+      if (normalized.dbClass) pricingConfig.instance_class = normalized.dbClass;
+      if (normalized.allocatedStorage) pricingConfig.allocated_storage = normalized.allocatedStorage;
+      if (normalized.serviceTier) pricingConfig.service_tier = normalized.serviceTier;
+      pricingConfig.hours = details.hours || 730;
+    }
+
+    // AWS SQS / SNS
+    if (kind === "aws.sqs" || kind === "aws.sns") {
+      pricingConfig.requests = details.requests || details.message_count || 1000000;
+    }
+
+    // AWS API Gateway
+    if (kind === "aws.apigw") {
+      pricingConfig.requests = details.requests || details.api_calls || 1000000;
+    }
+
+    // AWS Kinesis
+    if (kind === "aws.kinesis") {
+      pricingConfig.shards = normalized.shards || details.shards || 1;
+      pricingConfig.hours = details.hours || 730;
+    }
+
+    // AWS Step Functions
+    if (kind === "aws.sfn") {
+      pricingConfig.transitions = details.transitions || details.state_transitions || 1000;
+    }
+
+    // GCP Cloud Run
+    if (kind === "gcp.run") {
+      if (normalized.memory) {
+        // Convert "512Mi" to MB
+        const memoryStr = String(normalized.memory);
+        const memoryMB = memoryStr.includes("Mi") 
+          ? parseInt(memoryStr.replace("Mi", ""))
+          : memoryStr.includes("Gi")
+          ? parseInt(memoryStr.replace("Gi", "")) * 1024
+          : parseInt(memoryStr) || 512;
+        pricingConfig.memory = memoryMB;
+      }
+      if (normalized.cpu) {
+        // Convert "1000m" to number
+        const cpuStr = String(normalized.cpu);
+        pricingConfig.cpu = cpuStr.includes("m") 
+          ? parseFloat(cpuStr.replace("m", "")) / 1000
+          : parseFloat(cpuStr) || 1;
+      }
+      pricingConfig.invocations = details.invocations || 100000;
+      pricingConfig.estimated_duration = details.estimated_duration || 1.5;
+    }
+
+    // Azure Functions
+    if (kind === "azure.functionapp") {
+      pricingConfig.memory = details.memory || 128;
+      pricingConfig.timeout = details.timeout || 30;
+      pricingConfig.executions = details.executions || details.invocations || 100000;
+      pricingConfig.estimated_duration = details.estimated_duration || 1.5;
+    }
+
+    return pricingConfig;
+  };
+
+  // Fetch cost for a single node (supports all cloud providers)
+  const fetchNodeCost = useCallback(async (node: Node) => {
     try {
       const svc = (node.data as any).service;
-      // Map node type to service name for pricing API
-      // The pricing API expects simple names like "lambda", "s3", "vm"
-      // We can derive this from the node type or KIND_MAP
-      let serviceName = String(node.type);
+      if (!svc) return;
 
-      // Normalize service names to match pricing API expectations
-      if (serviceName.startsWith("aws.")) serviceName = serviceName.replace("aws.", "");
-      if (serviceName.startsWith("gcp.")) serviceName = serviceName.replace("gcp.", "");
+      // Get the pricing API service name for the current provider
+      const serviceName = getPricingServiceName(String(node.type), provider);
+      if (!serviceName) {
+        console.warn(`No pricing mapping for service type: ${node.type} on provider: ${provider}`);
+        return;
+      }
 
-      // Manual mapping for some services if needed
-      const typeMap: Record<string, string> = {
-        "gcp-storage": "cloud_storage",
-        "pubsub": "pubsub",
-        "cloud-run": "cloud_run",
-        "secret-manager": "secret_manager",
-        "firestore": "firestore",
-        "rds": "rds",
-        "lambda": "lambda",
-        "s3": "s3",
-        "ec2": "ec2",
-        "dynamodb": "dynamodb",
-        "sqs": "sqs",
-        "sns": "sns",
-        "apigateway": "apigw",
-        "kinesis": "kinesis",
-        "sfn": "sfn",
-        "events_rule": "events",
-        "cloudfront": "cloudfront",
-        "ecs": "ecs",
-        "ecr": "ecr",
-        "secretsmanager": "secretsmanager",
-        "cognito": "cognito",
-        "vpc": "vpc",
-        "cloudwatch": "cloudwatch",
-        "elasticache": "elasticache"
-      };
+      // Get the kind for config transformation
+      const kind = KIND_MAP[node.type as ExtendedPlanNodeType] || 
+        (provider === "gcp" ? "gcp.other" : provider === "azure" ? "azure.other" : "aws.other");
 
-      const apiService = typeMap[serviceName] || serviceName;
+      // Transform config to pricing API format
+      const pricingConfig = transformConfigForPricing(kind, svc.config || {}, provider);
 
-      // Prepare config
-      // We mix normalized props and raw config to ensure we capture everything
-      const kind = KIND_MAP[node.type as ExtendedPlanNodeType] || "aws.other";
-      const normalizedProps = normalizeToDesiredProps(kind, svc.config);
-      const config = { ...svc.config, ...normalizedProps };
+      // Get region from config or use default
+      const region = svc.config?.region || 
+        (provider === "gcp" ? "us-central1" : provider === "azure" ? "eastus" : "us-east-1");
 
       const res = await fetch(`${API_BASE}/cost-optimization/price`, {
         method: "POST",
         headers: getHeaders(true),
         body: JSON.stringify({
-          service: apiService,
+          service: serviceName,
           cloud: provider,
-          region: svc.config.region || (provider === "gcp" ? "us-central1" : "us-east-1"),
-          config: config
+          region: region,
+          config: pricingConfig
         })
       });
 
       if (res.ok) {
         const data = await res.json();
         if (data.price !== undefined) {
-          setNodes(nds => nds.map(n => n.id === node.id ? { ...n, data: { ...n.data, cost: data.price } } : n));
+          setNodes(nds => nds.map(n => 
+            n.id === node.id 
+              ? { 
+                  ...n, 
+                  data: { 
+                    ...n.data, 
+                    cost: data.price,
+                    costIsEstimated: data.isEstimated || false
+                  } 
+                } 
+              : n
+          ));
         }
+      } else {
+        console.error(`Failed to fetch cost for ${serviceName}:`, await res.text());
       }
     } catch (e) {
       console.error("Failed to fetch cost", e);
     }
-  };
+  }, [provider, API_BASE]);
+
+  // Refetch costs when provider changes
+  useEffect(() => {
+    nodes.forEach((node) => {
+      if (node.data?.service) {
+        fetchNodeCost(node);
+      }
+    });
+  }, [provider, fetchNodeCost]); // Only refetch when provider changes, not on every node change
 
   // Recalculate total cost whenever nodes change
   useEffect(() => {
@@ -1075,7 +1354,20 @@ const CanvasInner = (
       else if (String(n.type) === "firestore") type = "firestore" as ExtendedPlanNodeType;
 
       const details: Record<string, any> = (svc as any)?.config?.details || {};
-      const name = sanitizeName(svc?.config?.name?.trim?.() || svc?.label || n.id);
+      // Use user-entered name from config panel if available, otherwise use sanitized name
+      const userEnteredName = svc?.config?.name?.trim?.();
+      // For specific services, prefer the service-specific name field (bucketName, queueName, etc.)
+      let preferredName = userEnteredName;
+      if (type === "s3" && details.bucketName) preferredName = details.bucketName;
+      else if (type === "sqs" && details.queueName) preferredName = details.queueName;
+      else if (type === "sns" && details.topicName) preferredName = details.topicName;
+      else if (type === "lambda" && details.lambda_name) preferredName = details.lambda_name;
+      else if (type === "dynamodb" && details.tableName) preferredName = details.tableName;
+      else if (type === "kinesis" && details.streamName) preferredName = details.streamName;
+      else if (type === "pubsub" && details.topicName) preferredName = details.topicName;
+      else if (type === "azure.servicebus" && details.queueName) preferredName = details.queueName;
+      
+      const name = preferredName ? sanitizeName(preferredName) : sanitizeName(svc?.label || n.id);
       return { id: n.id, type, name, props: { label: svc?.label, region: svc?.config?.region || (details as any).region || "", ...details } };
     });
 
@@ -1163,9 +1455,10 @@ const CanvasInner = (
 
       // Preserve ALL original props for restoration (including bucketName, queueName, etc.)
       // Merge normalized props with original raw props to ensure we have everything
+      // User-entered values from config panel are preserved in raw, and mapped to physicalName in normalizedProps
       const props = {
-        ...raw, // Keep all original details (bucketName, queueName, etc.)
-        ...normalizedProps, // Override with normalized versions where applicable
+        ...raw, // Keep all original details (bucketName, queueName, etc.) from config panel
+        ...normalizedProps, // Override with normalized versions where applicable (includes physicalName mappings)
       };
 
       return {
@@ -1234,34 +1527,6 @@ const CanvasInner = (
     } else {
       console.log("=== /deploy payload ===\n", JSON.stringify(payload, null, 2));
     }
-  };
-
-  /* ----------------- API helpers ----------------- */
-  // Use the same base URL pattern as apiClient
-  const API_BASE =
-    typeof window === "undefined"
-      ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
-      : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
-  const AWS_API_BASE = `${API_BASE}/aws`;
-  const GCP_API_BASE = `${API_BASE}/gcp`;
-  const AZURE_API_BASE = `${API_BASE}/azure`;
-
-  // Helper to get access token from localStorage
-  const getAccessToken = (): string | null => {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem("access_token");
-  };
-
-  // Helper to create headers with auth if token exists
-  const getHeaders = (includeAuth: boolean = false): HeadersInit => {
-    const headers: HeadersInit = { "Content-Type": "application/json" };
-    if (includeAuth) {
-      const token = getAccessToken();
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-    }
-    return headers;
   };
 
   // Check if user has GCP credentials configured
@@ -1360,7 +1625,7 @@ const CanvasInner = (
           : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
       const pipelineData = {
-        name: "Untitled Pipeline",
+        name: initialPipelineName || "Untitled Pipeline",
         env: env as "dev" | "staging" | "prod",
         cloud: cloud as "aws" | "gcp" | "azure",
         region: region,
@@ -1395,6 +1660,58 @@ const CanvasInner = (
     } catch (error) {
       console.error("Error auto-saving pipeline:", error);
       return null;
+    }
+  };
+
+  /* ----------------- Auto-save Pipeline ----------------- */
+  const autoSavePipeline = async () => {
+    try {
+      const token = getAccessToken();
+      if (!token) {
+        return; // Silently fail if no auth
+      }
+
+      // Ensure pipeline exists first
+      const pipelineId = currentPipelineId || await ensurePipelineExists();
+      if (!pipelineId) {
+        return; // Silently fail if can't create/get pipeline
+      }
+
+      const plan = buildPlan();
+      const payload = buildDeploymentPayload(plan);
+
+      const env = payload.env || "dev";
+      const region = payload.region || payload.location || "us-east-1";
+      const cloud = provider === "gcp" ? "gcp" : provider === "azure" ? "azure" : "aws";
+
+      const API_BASE =
+        typeof window === "undefined"
+          ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
+          : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+
+      // Update pipeline with latest payload
+      const res = await fetch(`${API_BASE}/pipelines/${pipelineId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          payload: payload,
+          env: env as "dev" | "staging" | "prod",
+          cloud: cloud as "aws" | "gcp" | "azure",
+          region: region,
+        }),
+      });
+
+      if (res.ok) {
+        console.log("Pipeline auto-saved");
+      } else {
+        console.error("Failed to auto-save pipeline:", await res.text());
+      }
+    } catch (error) {
+      console.error("Error auto-saving pipeline:", error);
+      // Silently fail - auto-save is not critical
     }
   };
 
@@ -1497,6 +1814,7 @@ const CanvasInner = (
       const endpoint = provider === "gcp" ? "/up" : provider === "azure" ? "/deploy" : "/deploy";
 
       // For GCP and Azure, wrap payload in {ir: {...}} format
+      // For AWS, send IR directly (payload is already in IR format)
       const requestBody = (provider === "gcp" || provider === "azure") ? { ir: payload } : payload;
 
       const res = await fetch(`${apiBase}${endpoint}`, {
@@ -1518,23 +1836,21 @@ const CanvasInner = (
       const durationSec = (deploymentEndTime - deploymentStartTime) / 1000;
 
       if (!res.ok) {
-        // Handle bootstrap error specifically
+        // Handle errors - backend returns {detail: {message: "...", output: "...", step: "...", hint: "..."}}
         const detail = data?.detail;
-        if (detail?.message === "CDK environment not bootstrapped" ||
-          (typeof detail === "string" && detail.includes("not been bootstrapped")) ||
-          (detail?.message && detail.message.includes("not been bootstrapped"))) {
-          const hint = detail?.hint || "Please bootstrap the CDK environment first.";
-          throw new Error(`CDK environment not bootstrapped. ${hint}`);
-        }
-
-        // Handle other errors - backend returns {detail: {message: "...", output: "..."}}
         let msg: string;
         if (typeof detail === "string") {
           msg = detail;
         } else if (detail?.message) {
           msg = detail.message;
           if (detail?.output) {
-            msg += `\n${detail.output}`;
+            msg += `\n\nOutput:\n${detail.output}`;
+          }
+          if (detail?.hint) {
+            msg += `\n\nHint: ${detail.hint}`;
+          }
+          if (detail?.step) {
+            msg += `\n\nStep: ${detail.step}`;
           }
         } else {
           msg = data?.error || text || `Deploy failed (${res.status})`;

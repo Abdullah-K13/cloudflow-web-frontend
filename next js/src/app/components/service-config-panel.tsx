@@ -81,17 +81,47 @@ const defaultDetailsFor = (service: { id?: string; label?: string }) => {
       };
     case "sns":
       return { topicName: "", displayName: "", fifo: false, contentBasedDeduplication: false };
+    case "apigateway":
+      return { restApiName: "", description: "", deploymentStage: "prod" };
+    case "events_rule":
+    case "events":
+      return { ruleName: "", pattern: {}, schedule: "" };
+    case "sfn":
+      return { stateMachineName: "", definition: undefined };
+    case "ec2":
+      return { instanceName: "", instanceType: "t3.micro", ami: "", keyName: "", securityGroups: [] };
+    case "rds":
+      return { 
+        instanceIdentifier: "", 
+        dbIdentifier: "", 
+        engine: "postgres", 
+        engineVersion: "16.3", 
+        instanceClass: "db.t3.micro", 
+        dbClass: "db.t3.micro",
+        allocatedStorage: 20,
+        storage: 20,
+        masterUsername: "admin",
+        masterPassword: "",
+        multiAZ: false
+      };
+    case "ecs":
+      return { 
+        clusterName: "", 
+        serviceName: "", 
+        taskDefinition: { cpu: "256", memory: "512", image: "nginx:latest" },
+        desiredCount: 1
+      };
     case "kinesis":
       return { streamName: "", shardCount: 1, retentionHours: 24, encryptionType: "NONE", kmsKeyId: "" };
     case "dynamodb":
       return {
         tableName: "",
-        partitionKey: { name: "id", type: "S" },
+        partitionKey: { name: "pk", type: "S" },
         sortKey: { name: "", type: "S" },
-        bucketName: "",
-        uniformAccess: true,
-        forceDestroy: false,
-        labels: {},
+        billing: "PAY_PER_REQUEST",
+        stream: true,
+        rcu: 10,
+        wcu: 10,
       };
     case "gcppubsub":
     case "pubsub":
@@ -199,8 +229,8 @@ function validate(serviceLabel: string, cfg: ServiceConfig): Errors {
   const e: Errors = {};
   const d = cfg.details || {};
   if (serviceLabel === "AWS Lambda") {
-    if (!d.runtime?.trim()) e.runtime = "Runtime is required";
-    e.bucketName = "Bucket name must be 3-63 characters";
+    if (!d.lambda_name?.trim()) e.lambda_name = "Lambda name is required";
+    if (!cfg.region?.trim()) e.region = "Region is required";
   }
   if (serviceLabel === "Pub/Sub") {
     if (!d.topicName?.trim()) e.topicName = "Topic name is required";
@@ -440,13 +470,15 @@ export default function ServiceConfigPanel({
           >
             <div className="space-y-5">
               <div>
-                <Label>Lambda Name</Label>
+                <Label>Lambda Name *</Label>
                 <TextInput
                   id="lambda_name"
                   value={d.lambda_name || ""}
                   onChange={(e) => updateDetails({ lambda_name: e.target.value })}
                   placeholder="MyLambdaFunction"
+                  error={errors.lambda_name}
                 />
+                <FieldError id="lambda_name-error" message={errors.lambda_name} />
               </div>
               <div>
                 <Label>Runtime</Label>
@@ -588,13 +620,15 @@ export default function ServiceConfigPanel({
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Region (Base)</Label>
+                  <Label>Region (Base) *</Label>
                   <TextInput
                     id="baseRegion"
                     value={config.region}
                     onChange={(e) => setConfig({ ...config, region: e.target.value })}
                     placeholder="e.g., us-east-1"
+                    error={errors.region}
                   />
+                  <FieldError id="region-error-base" message={errors.region} />
                 </div>
                 <div>
                   <Label>Region (S3 override)</Label>
@@ -716,30 +750,117 @@ export default function ServiceConfigPanel({
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Read Capacity Units</Label>
+                  <Label>Partition Key Name</Label>
                   <TextInput
-                    id="readCapacity"
-                    type="number"
-                    value={d.readCapacity || 5}
-                    onChange={(e) => updateDetails({ readCapacity: Number(e.target.value) })}
+                    id="partitionKeyName"
+                    value={d.partitionKey?.name || "pk"}
+                    onChange={(e) => updateDetails({ 
+                      partitionKey: { 
+                        name: e.target.value, 
+                        type: d.partitionKey?.type || "S" 
+                      } 
+                    })}
+                    placeholder="pk"
                   />
                 </div>
                 <div>
-                  <Label>Write Capacity Units</Label>
-                  <TextInput
-                    id="writeCapacity"
-                    type="number"
-                    value={d.writeCapacity || 5}
-                    onChange={(e) => updateDetails({ writeCapacity: Number(e.target.value) })}
+                  <Label>Partition Key Type</Label>
+                  <SelectInput
+                    id="partitionKeyType"
+                    value={d.partitionKey?.type || "S"}
+                    onChange={(e) => updateDetails({ 
+                      partitionKey: { 
+                        name: d.partitionKey?.name || "pk", 
+                        type: e.target.value 
+                      } 
+                    })}
+                    options={[
+                      { value: "S", label: "String (S)" },
+                      { value: "N", label: "Number (N)" },
+                      { value: "B", label: "Binary (B)" },
+                    ]}
                   />
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Sort Key Name (Optional)</Label>
+                  <TextInput
+                    id="sortKeyName"
+                    value={d.sortKey?.name || ""}
+                    onChange={(e) => updateDetails({ 
+                      sortKey: e.target.value ? {
+                        name: e.target.value, 
+                        type: d.sortKey?.type || "S" 
+                      } : undefined
+                    })}
+                    placeholder="timestamp"
+                  />
+                </div>
+                {d.sortKey?.name && (
+                  <div>
+                    <Label>Sort Key Type</Label>
+                    <SelectInput
+                      id="sortKeyType"
+                      value={d.sortKey?.type || "S"}
+                      onChange={(e) => updateDetails({ 
+                        sortKey: { 
+                          name: d.sortKey?.name, 
+                          type: e.target.value 
+                        } 
+                      })}
+                      options={[
+                        { value: "S", label: "String (S)" },
+                        { value: "N", label: "Number (N)" },
+                        { value: "B", label: "Binary (B)" },
+                      ]}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <Label>Billing Mode</Label>
+                <SelectInput
+                  id="billing"
+                  value={d.billing || "PAY_PER_REQUEST"}
+                  onChange={(e) => updateDetails({ billing: e.target.value })}
+                  options={[
+                    { value: "PAY_PER_REQUEST", label: "Pay Per Request" },
+                    { value: "PROVISIONED", label: "Provisioned" },
+                  ]}
+                />
+              </div>
+
+              {d.billing === "PROVISIONED" && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Read Capacity Units (RCU)</Label>
+                    <TextInput
+                      id="rcu"
+                      type="number"
+                      value={d.rcu || 10}
+                      onChange={(e) => updateDetails({ rcu: Number(e.target.value) })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Write Capacity Units (WCU)</Label>
+                    <TextInput
+                      id="wcu"
+                      type="number"
+                      value={d.wcu || 10}
+                      onChange={(e) => updateDetails({ wcu: Number(e.target.value) })}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div>
                 <Checkbox
-                  checked={!!d.onDemand}
-                  onChange={(e) => updateDetails({ onDemand: e.target.checked })}
-                  label="Use On-Demand Capacity"
+                  checked={d.stream !== undefined ? d.stream : true}
+                  onChange={(e) => updateDetails({ stream: e.target.checked })}
+                  label="Enable DynamoDB Streams"
                 />
               </div>
             </div>
@@ -757,8 +878,8 @@ export default function ServiceConfigPanel({
                 <Label>DB Instance Identifier</Label>
                 <TextInput
                   id="dbIdentifier"
-                  value={d.dbIdentifier || ""}
-                  onChange={(e) => updateDetails({ dbIdentifier: e.target.value })}
+                  value={d.instanceIdentifier || d.dbIdentifier || ""}
+                  onChange={(e) => updateDetails({ instanceIdentifier: e.target.value, dbIdentifier: e.target.value })}
                   placeholder="mydb-instance"
                   error={errors.dbIdentifier}
                 />
@@ -782,38 +903,70 @@ export default function ServiceConfigPanel({
                   />
                 </div>
                 <div>
-                  <Label>DB Instance Class</Label>
-                  <SelectInput
-                    id="dbClass"
-                    value={d.dbClass || "db.t3.micro"}
-                    onChange={(e) => updateDetails({ dbClass: e.target.value })}
-                    options={[
-                      { value: "db.t3.micro", label: "db.t3.micro" },
-                      { value: "db.t3.small", label: "db.t3.small" },
-                      { value: "db.t3.medium", label: "db.t3.medium" },
-                    ]}
+                  <Label>Engine Version</Label>
+                  <TextInput
+                    id="engineVersion"
+                    value={d.engineVersion || "16.3"}
+                    onChange={(e) => updateDetails({ engineVersion: e.target.value })}
+                    placeholder="16.3"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Allocated Storage (GB)</Label>
-                  <TextInput
-                    id="storage"
-                    type="number"
-                    value={d.storage || 20}
-                    onChange={(e) => updateDetails({ storage: Number(e.target.value) })}
+                  <Label>DB Instance Class</Label>
+                  <SelectInput
+                    id="dbClass"
+                    value={d.instanceClass || d.dbClass || "db.t3.micro"}
+                    onChange={(e) => updateDetails({ instanceClass: e.target.value, dbClass: e.target.value })}
+                    options={[
+                      { value: "db.t3.micro", label: "db.t3.micro" },
+                      { value: "db.t3.small", label: "db.t3.small" },
+                      { value: "db.t3.medium", label: "db.t3.medium" },
+                      { value: "db.m5.large", label: "db.m5.large" },
+                    ]}
                   />
                 </div>
                 <div>
-                  <Label>Multi-AZ</Label>
-                  <Checkbox
-                    checked={!!d.multiAZ}
-                    onChange={(e) => updateDetails({ multiAZ: e.target.checked })}
-                    label="Enable Multi-AZ"
+                  <Label>Allocated Storage (GB)</Label>
+                  <TextInput
+                    id="allocatedStorage"
+                    type="number"
+                    value={d.allocatedStorage || d.storage || 20}
+                    onChange={(e) => updateDetails({ allocatedStorage: Number(e.target.value), storage: Number(e.target.value) })}
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Master Username</Label>
+                  <TextInput
+                    id="masterUsername"
+                    value={d.masterUsername || "admin"}
+                    onChange={(e) => updateDetails({ masterUsername: e.target.value })}
+                    placeholder="admin"
+                  />
+                </div>
+                <div>
+                  <Label>Master Password</Label>
+                  <TextInput
+                    id="masterPassword"
+                    type="password"
+                    value={d.masterPassword || ""}
+                    onChange={(e) => updateDetails({ masterPassword: e.target.value })}
+                    placeholder="Enter password"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Checkbox
+                  checked={!!d.multiAZ}
+                  onChange={(e) => updateDetails({ multiAZ: e.target.checked })}
+                  label="Enable Multi-AZ Deployment"
+                />
               </div>
             </div>
           </SectionCard>
@@ -839,12 +992,12 @@ export default function ServiceConfigPanel({
               </div>
 
               <div>
-                <Label>Delivery Policy (JSON)</Label>
+                <Label>Display Name (Optional)</Label>
                 <TextInput
-                  id="deliveryPolicy"
-                  value={d.deliveryPolicy || ""}
-                  onChange={(e) => updateDetails({ deliveryPolicy: e.target.value })}
-                  placeholder='{"http":{"defaultHealthyRetryPolicy":{...}}}'
+                  id="displayName"
+                  value={d.displayName || ""}
+                  onChange={(e) => updateDetails({ displayName: e.target.value })}
+                  placeholder="My Topic"
                 />
               </div>
 
@@ -859,6 +1012,140 @@ export default function ServiceConfigPanel({
           </SectionCard>
         );
 
+      case "API Gateway":
+      case "AWS API Gateway":
+        return (
+          <SectionCard
+            title="API Gateway Settings"
+            icon={<img src="/aws-icons/API Gateway.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>REST API Name</Label>
+                <TextInput
+                  id="restApiName"
+                  value={d.restApiName || d.apiName || ""}
+                  onChange={(e) => updateDetails({ restApiName: e.target.value, apiName: e.target.value })}
+                  placeholder="my-rest-api"
+                />
+              </div>
+              <div>
+                <Label>Description (Optional)</Label>
+                <TextInput
+                  id="description"
+                  value={d.description || ""}
+                  onChange={(e) => updateDetails({ description: e.target.value })}
+                  placeholder="My REST API"
+                />
+              </div>
+              <div>
+                <Label>Deployment Stage</Label>
+                <TextInput
+                  id="deploymentStage"
+                  value={d.deploymentStage || "prod"}
+                  onChange={(e) => updateDetails({ deploymentStage: e.target.value })}
+                  placeholder="prod"
+                />
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "EventBridge Rule":
+      case "AWS EventBridge Rule":
+        return (
+          <SectionCard
+            title="EventBridge Rule Settings"
+            icon={<img src="/aws-icons/eventbridge.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>Rule Name (Optional)</Label>
+                <TextInput
+                  id="ruleName"
+                  value={d.ruleName || ""}
+                  onChange={(e) => updateDetails({ ruleName: e.target.value })}
+                  placeholder="my-rule"
+                />
+              </div>
+              <div>
+                <Label>Schedule Expression (Optional)</Label>
+                <TextInput
+                  id="schedule"
+                  value={d.schedule || ""}
+                  onChange={(e) => updateDetails({ schedule: e.target.value })}
+                  placeholder='rate(5 minutes) or cron(0 12 * * ? *)'
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Use rate() for periodic events or cron() for scheduled events
+                </p>
+              </div>
+              <div>
+                <Label>Event Pattern (JSON, Optional)</Label>
+                <textarea
+                  id="pattern"
+                  value={d.pattern ? JSON.stringify(d.pattern, null, 2) : '{\n  "source": ["aws.s3"],\n  "detail-type": ["Object Created"]\n}'}
+                  onChange={(e) => {
+                    try {
+                      const parsed = JSON.parse(e.target.value);
+                      updateDetails({ pattern: parsed });
+                    } catch {
+                      // Invalid JSON, keep as is
+                    }
+                  }}
+                  rows={6}
+                  className={baseInputClass(undefined) + " resize-none font-mono text-xs"}
+                  placeholder='{"source": ["aws.s3"], "detail-type": ["Object Created"]}'
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Event pattern to match events. Required if schedule is not provided.
+                </p>
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      case "Step Functions":
+      case "AWS Step Functions":
+        return (
+          <SectionCard
+            title="Step Functions Settings"
+            icon={<img src="/aws-icons/stepfunctions.png" alt="" className="h-4 w-4" />}
+          >
+            <div className="space-y-5">
+              <div>
+                <Label>State Machine Name</Label>
+                <TextInput
+                  id="stateMachineName"
+                  value={d.stateMachineName || ""}
+                  onChange={(e) => updateDetails({ stateMachineName: e.target.value })}
+                  placeholder="my-state-machine"
+                />
+              </div>
+              <div>
+                <Label>Definition (JSON, Optional)</Label>
+                <textarea
+                  id="definition"
+                  value={d.definition ? JSON.stringify(d.definition, null, 2) : '{\n  "Comment": "A simple pass-through state",\n  "StartAt": "PassState",\n  "States": {\n    "PassState": {\n      "Type": "Pass",\n      "Result": "Hello World",\n      "End": true\n    }\n  }\n}'}
+                  onChange={(e) => {
+                    try {
+                      const parsed = JSON.parse(e.target.value);
+                      updateDetails({ definition: parsed });
+                    } catch {
+                      // Invalid JSON, keep as is
+                    }
+                  }}
+                  rows={10}
+                  className={baseInputClass(undefined) + " resize-none font-mono text-xs"}
+                  placeholder='{"Comment": "State machine definition"}'
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  State machine definition in JSON format. If not provided, a simple pass-through state will be used.
+                </p>
+              </div>
+            </div>
+          </SectionCard>
+        );
 
       // --- NEW AWS SERVICES ---
 
@@ -867,15 +1154,29 @@ export default function ServiceConfigPanel({
           <SectionCard title="EC2 Settings" icon={<img src="/aws-icons/ec2.png" alt="" className="h-4 w-4" />}>
             <div className="space-y-5">
               <div>
-                <Label>Instance Type</Label>
+                <Label>Instance Name</Label>
                 <TextInput
+                  id="instanceName"
+                  value={d.instanceName || ""}
+                  onChange={(e) => updateDetails({ instanceName: e.target.value })}
+                  placeholder="my-ec2-instance"
+                />
+              </div>
+              <div>
+                <Label>Instance Type</Label>
+                <SelectInput
                   id="instanceType"
                   value={d.instanceType || "t3.micro"}
                   onChange={(e) => updateDetails({ instanceType: e.target.value })}
-                  placeholder="t3.micro"
-                  error={errors.instanceType}
+                  options={[
+                    { value: "t3.micro", label: "t3.micro" },
+                    { value: "t3.small", label: "t3.small" },
+                    { value: "t3.medium", label: "t3.medium" },
+                    { value: "t3.large", label: "t3.large" },
+                    { value: "m5.large", label: "m5.large" },
+                    { value: "m5.xlarge", label: "m5.xlarge" },
+                  ]}
                 />
-                <FieldError id="instanceType-error" message={errors.instanceType} />
               </div>
               <div>
                 <Label>AMI ID (Optional)</Label>
@@ -884,6 +1185,27 @@ export default function ServiceConfigPanel({
                   value={d.ami || ""}
                   onChange={(e) => updateDetails({ ami: e.target.value })}
                   placeholder="ami-12345678"
+                />
+              </div>
+              <div>
+                <Label>SSH Key Pair Name (Optional)</Label>
+                <TextInput
+                  id="keyName"
+                  value={d.keyName || ""}
+                  onChange={(e) => updateDetails({ keyName: e.target.value })}
+                  placeholder="my-key-pair"
+                />
+              </div>
+              <div>
+                <Label>Security Group IDs (Comma-separated, Optional)</Label>
+                <TextInput
+                  id="securityGroups"
+                  value={Array.isArray(d.securityGroups) ? d.securityGroups.join(", ") : (d.securityGroups || "")}
+                  onChange={(e) => {
+                    const groups = e.target.value.split(",").map((g: string) => g.trim()).filter((g: string) => g);
+                    updateDetails({ securityGroups: groups.length > 0 ? groups : undefined });
+                  }}
+                  placeholder="sg-12345678, sg-87654321"
                 />
               </div>
             </div>
@@ -906,12 +1228,84 @@ export default function ServiceConfigPanel({
                 <FieldError id="clusterName-error" message={errors.clusterName} />
               </div>
               <div>
+                <Label>Service Name (Optional)</Label>
+                <TextInput
+                  id="serviceName"
+                  value={d.serviceName || ""}
+                  onChange={(e) => updateDetails({ serviceName: e.target.value })}
+                  placeholder="my-ecs-service"
+                />
+              </div>
+              <div>
                 <Label>Launch Type</Label>
                 <SelectInput
                   id="launchType"
                   value={d.launchType || "FARGATE"}
                   onChange={(e) => updateDetails({ launchType: e.target.value })}
                   options={[{ value: "FARGATE", label: "Fargate" }, { value: "EC2", label: "EC2" }]}
+                />
+              </div>
+              <div className="border-t pt-4">
+                <h4 className="text-sm font-semibold text-slate-700 mb-3">Task Definition</h4>
+                <div className="space-y-4">
+                  <div>
+                    <Label>Container Image</Label>
+                    <TextInput
+                      id="taskImage"
+                      value={d.taskDefinition?.image || d.image || ""}
+                      onChange={(e) => updateDetails({ 
+                        taskDefinition: { 
+                          ...d.taskDefinition, 
+                          image: e.target.value 
+                        },
+                        image: e.target.value
+                      })}
+                      placeholder="nginx:latest"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>CPU Units</Label>
+                      <TextInput
+                        id="taskCpu"
+                        value={d.taskDefinition?.cpu || d.cpu || "256"}
+                        onChange={(e) => updateDetails({ 
+                          taskDefinition: { 
+                            ...d.taskDefinition, 
+                            cpu: e.target.value 
+                          },
+                          cpu: e.target.value
+                        })}
+                        placeholder="256"
+                      />
+                    </div>
+                    <div>
+                      <Label>Memory (MB)</Label>
+                      <TextInput
+                        id="taskMemory"
+                        type="number"
+                        value={d.taskDefinition?.memory || d.memory || "512"}
+                        onChange={(e) => updateDetails({ 
+                          taskDefinition: { 
+                            ...d.taskDefinition, 
+                            memory: e.target.value 
+                          },
+                          memory: e.target.value
+                        })}
+                        placeholder="512"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <Label>Desired Count</Label>
+                <TextInput
+                  id="desiredCount"
+                  type="number"
+                  value={d.desiredCount || 1}
+                  onChange={(e) => updateDetails({ desiredCount: Number(e.target.value) })}
+                  placeholder="1"
                 />
               </div>
             </div>
@@ -932,6 +1326,25 @@ export default function ServiceConfigPanel({
                   error={errors.repositoryName}
                 />
                 <FieldError id="repositoryName-error" message={errors.repositoryName} />
+              </div>
+              <div>
+                <Label>Image Tag Mutability</Label>
+                <SelectInput
+                  id="imageTagMutability"
+                  value={d.imageTagMutability || "MUTABLE"}
+                  onChange={(e) => updateDetails({ imageTagMutability: e.target.value })}
+                  options={[
+                    { value: "MUTABLE", label: "Mutable" },
+                    { value: "IMMUTABLE", label: "Immutable" },
+                  ]}
+                />
+              </div>
+              <div>
+                <Checkbox
+                  checked={d.scanOnPush !== undefined ? d.scanOnPush : false}
+                  onChange={(e) => updateDetails({ scanOnPush: e.target.checked })}
+                  label="Enable Image Scanning on Push"
+                />
               </div>
               <div>
                 <Label>Image Tag Mutability</Label>
@@ -1121,6 +1534,24 @@ export default function ServiceConfigPanel({
           <SectionCard title="CloudFront Settings" icon={<img src="/aws-icons/CloudFront.png" alt="" className="h-4 w-4" />}>
             <div className="space-y-5">
               <div>
+                <Label>Distribution Name</Label>
+                <TextInput
+                  id="distributionName"
+                  value={d.distributionName || ""}
+                  onChange={(e) => updateDetails({ distributionName: e.target.value })}
+                  placeholder="my-cdn"
+                />
+              </div>
+              <div>
+                <Label>Origin Domain</Label>
+                <TextInput
+                  id="originDomain"
+                  value={d.originDomain || ""}
+                  onChange={(e) => updateDetails({ originDomain: e.target.value })}
+                  placeholder="example.com"
+                />
+              </div>
+              <div>
                 <Label>Distribution ID (Optional)</Label>
                 <TextInput
                   id="distributionId"
@@ -1140,6 +1571,13 @@ export default function ServiceConfigPanel({
                     { value: "PriceClass_200", label: "+ Asia / Africa" },
                     { value: "PriceClass_All", label: "All Locations" },
                   ]}
+                />
+              </div>
+              <div>
+                <Checkbox
+                  checked={d.enabled !== undefined ? d.enabled : true}
+                  onChange={(e) => updateDetails({ enabled: e.target.checked })}
+                  label="Enable Distribution"
                 />
               </div>
             </div>
@@ -1390,6 +1828,15 @@ export default function ServiceConfigPanel({
           >
             <div className="space-y-5">
               <div>
+                <Label>Secret ID</Label>
+                <TextInput
+                  id="secretId"
+                  value={d.secretId || ""}
+                  onChange={(e) => updateDetails({ secretId: e.target.value })}
+                  placeholder="my-secret-id"
+                />
+              </div>
+              <div>
                 <Label>Secret Value (Optional)</Label>
                 <textarea
                   id="secretValue"
@@ -1418,18 +1865,13 @@ export default function ServiceConfigPanel({
                 <Label>Location ID</Label>
                 <SelectInput
                   id="locationId"
-                  value={d.locationId || "us-central"}
+                  value={d.locationId || "nam5"}
                   onChange={(e) => updateDetails({ locationId: e.target.value })}
                   options={[
-                    { value: "us-central", label: "us-central (Multi-region)" },
-                    { value: "us-east1", label: "us-east1 (South Carolina)" },
-                    { value: "us-east4", label: "us-east4 (Northern Virginia)" },
-                    { value: "us-west1", label: "us-west1 (Oregon)" },
-                    { value: "us-west2", label: "us-west2 (Los Angeles)" },
-                    { value: "europe-west1", label: "europe-west1 (Belgium)" },
-                    { value: "europe-west2", label: "europe-west2 (London)" },
-                    { value: "asia-northeast1", label: "asia-northeast1 (Tokyo)" },
-                    { value: "asia-southeast1", label: "asia-southeast1 (Singapore)" },
+                    { value: "nam5", label: "nam5 (us-central multi-region)" },
+                    { value: "us-central1", label: "us-central1" },
+                    { value: "us-east1", label: "us-east1" },
+                    { value: "europe-west1", label: "europe-west1" },
                   ]}
                   error={errors.locationId}
                 />
@@ -1437,15 +1879,15 @@ export default function ServiceConfigPanel({
               </div>
 
               <div>
-                <Label>Database ID</Label>
+                <Label>Database Name</Label>
                 <TextInput
-                  id="databaseId"
-                  value={d.databaseId || "(default)"}
-                  onChange={(e) => updateDetails({ databaseId: e.target.value })}
+                  id="databaseName"
+                  value={d.databaseName || d.databaseId || "(default)"}
+                  onChange={(e) => updateDetails({ databaseName: e.target.value, databaseId: e.target.value })}
                   placeholder="(default)"
                 />
                 <p className="mt-1 text-xs text-slate-500">
-                  Database ID. Use "(default)" for the default database.
+                  Database name. Use "(default)" for the default database.
                 </p>
               </div>
             </div>
@@ -1700,6 +2142,31 @@ export default function ServiceConfigPanel({
                   Y1 is the Consumption plan (pay-per-use). EP plans are Premium (dedicated).
                 </p>
               </div>
+              <div>
+                <Label>Runtime</Label>
+                <SelectInput
+                  id="runtime"
+                  value={d.runtime || "python"}
+                  onChange={(e) => updateDetails({ runtime: e.target.value })}
+                  options={[
+                    { value: "python", label: "Python" },
+                    { value: "node", label: "Node.js" },
+                    { value: "dotnet", label: ".NET" },
+                  ]}
+                />
+              </div>
+              <div>
+                <Label>Functions Version</Label>
+                <SelectInput
+                  id="functionsVersion"
+                  value={d.functionsVersion || "~4"}
+                  onChange={(e) => updateDetails({ functionsVersion: e.target.value })}
+                  options={[
+                    { value: "~4", label: "~4" },
+                    { value: "~3", label: "~3" },
+                  ]}
+                />
+              </div>
             </div>
           </SectionCard>
         );
@@ -1712,6 +2179,15 @@ export default function ServiceConfigPanel({
           >
             <div className="space-y-5">
               <div>
+                <Label>Server Name</Label>
+                <TextInput
+                  id="serverName"
+                  value={d.serverName || ""}
+                  onChange={(e) => updateDetails({ serverName: e.target.value })}
+                  placeholder="my-sql-server"
+                />
+              </div>
+              <div>
                 <Label>Database Name</Label>
                 <TextInput
                   id="databaseName"
@@ -1721,6 +2197,27 @@ export default function ServiceConfigPanel({
                   error={errors.databaseName}
                 />
                 <FieldError id="databaseName-error" message={errors.databaseName} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Admin Login</Label>
+                  <TextInput
+                    id="adminLogin"
+                    value={d.adminLogin || "sqladmin"}
+                    onChange={(e) => updateDetails({ adminLogin: e.target.value })}
+                    placeholder="sqladmin"
+                  />
+                </div>
+                <div>
+                  <Label>Admin Password</Label>
+                  <TextInput
+                    id="adminPassword"
+                    type="password"
+                    value={d.adminPassword || ""}
+                    onChange={(e) => updateDetails({ adminPassword: e.target.value })}
+                    placeholder="Enter password"
+                  />
+                </div>
               </div>
               <div>
                 <Label>Service Tier</Label>
@@ -1751,6 +2248,19 @@ export default function ServiceConfigPanel({
             icon={<img src="/azure-icons/10121-icon-service-Azure-Cosmos-DB.png" alt="" className="h-4 w-4" />}
           >
             <div className="space-y-5">
+              <div>
+                <Label>Kind</Label>
+                <SelectInput
+                  id="kind"
+                  value={d.kind || "GlobalDocumentDB"}
+                  onChange={(e) => updateDetails({ kind: e.target.value })}
+                  options={[
+                    { value: "GlobalDocumentDB", label: "GlobalDocumentDB" },
+                    { value: "MongoDB", label: "MongoDB" },
+                    { value: "Table", label: "Table" },
+                  ]}
+                />
+              </div>
               <div>
                 <Label>Database Name</Label>
                 <TextInput
@@ -1846,6 +2356,18 @@ export default function ServiceConfigPanel({
           >
             <div className="space-y-5">
               <div>
+                <Label>Vault Name</Label>
+                <TextInput
+                  id="vaultName"
+                  value={d.vaultName || ""}
+                  onChange={(e) => updateDetails({ vaultName: e.target.value })}
+                  placeholder="my-key-vault"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Must be 3-24 characters, alphanumeric and hyphens only. Globally unique.
+                </p>
+              </div>
+              <div>
                 <Label>Tenant ID</Label>
                 <TextInput
                   id="tenantId"
@@ -1870,8 +2392,29 @@ export default function ServiceConfigPanel({
             icon={<img src="/azure-icons/00012-icon-service-Application-Insights.png" alt="" className="h-4 w-4" />}
           >
             <div className="space-y-5">
-              <div className="text-sm text-slate-600">
-                Application Insights uses default settings. No additional configuration required.
+              <div>
+                <Label>Application Type</Label>
+                <SelectInput
+                  id="applicationType"
+                  value={d.applicationType || "web"}
+                  onChange={(e) => updateDetails({ applicationType: e.target.value })}
+                  options={[
+                    { value: "web", label: "Web" },
+                    { value: "other", label: "Other" },
+                  ]}
+                />
+              </div>
+              <div>
+                <Label>Ingestion Mode</Label>
+                <SelectInput
+                  id="ingestionMode"
+                  value={d.ingestionMode || "ApplicationInsights"}
+                  onChange={(e) => updateDetails({ ingestionMode: e.target.value })}
+                  options={[
+                    { value: "ApplicationInsights", label: "ApplicationInsights" },
+                    { value: "LogAnalytics", label: "LogAnalytics" },
+                  ]}
+                />
               </div>
             </div>
           </SectionCard>
@@ -2062,13 +2605,15 @@ export default function ServiceConfigPanel({
                       />
                     </div>
                     <div>
-                      <Label>Region</Label>
+                      <Label>Region *</Label>
                       <TextInput
                         id="baseRegionTop"
                         value={config.region}
                         onChange={(e) => setConfig({ ...config, region: e.target.value })}
                         placeholder="e.g., us-east-1"
+                        error={errors.region}
                       />
+                      <FieldError id="region-error" message={errors.region} />
                     </div>
                   </div>
                 </div>

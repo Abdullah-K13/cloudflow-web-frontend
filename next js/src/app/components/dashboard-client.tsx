@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Search, Plus } from "lucide-react";
 import { apiClient } from "@/lib/services/apiClient";
+import PipelineNameModal from "./ui/pipeline-name-modal";
 
 // ---------- Types ----------
 interface RecentArchitecture {
@@ -59,6 +61,7 @@ export default function DashboardClient({
   name,
   userRole,
 }: Props) {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [isClient, setIsClient] = useState(false);
   const [recentArchitectures, setRecentArchitectures] = useState<RecentArchitecture[]>([]);
@@ -70,6 +73,7 @@ export default function DashboardClient({
     email: string | null;
     role: string | null;
   }>({ id: userId, email: name, role: userRole || null });
+  const [showPipelineModal, setShowPipelineModal] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
@@ -201,13 +205,13 @@ export default function DashboardClient({
               </p>
             </div>
 
-            <Link
-              href="/workplace"
+            <button
+              onClick={() => setShowPipelineModal(true)}
               className="group inline-flex items-center gap-2 rounded-xl bg-orange-600 px-5 py-3 text-sm font-medium text-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-orange-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-200 active:translate-y-0"
             >
               <Plus className="h-5 w-5 transition-transform duration-200 group-hover:rotate-90" />
               New Pipeline
-            </Link>
+            </button>
           </div>
         </div>
 
@@ -283,6 +287,17 @@ export default function DashboardClient({
           </Link>
         </div>
       </aside>
+
+      {/* Pipeline Name Modal */}
+      <PipelineNameModal
+        isOpen={showPipelineModal}
+        onClose={() => setShowPipelineModal(false)}
+        onSubmit={(name) => {
+          setShowPipelineModal(false);
+          // Navigate to workplace with pipeline name as query parameter
+          router.push(`/workplace?name=${encodeURIComponent(name)}`);
+        }}
+      />
     </div>
   );
 }

@@ -34,4 +34,5 @@ export interface CanvasProps {
   onPipelineCreated?: (pipelineId: string) => void;
   initialEdges?: Array<{ from: string; to: string }>;
   initialProvider?: "aws" | "gcp" | "azure";
+  initialPipelineName?: string;
 }
