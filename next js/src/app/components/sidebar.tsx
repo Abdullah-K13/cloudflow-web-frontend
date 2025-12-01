@@ -11,7 +11,6 @@ import {
   Activity,
   Layers,
   Settings,
-  HelpCircle,
 } from "lucide-react";
 
 type Accent = "teal" | "orange";
@@ -27,7 +26,7 @@ const mainNav: LinkItem[] = [
   { href: "/dash", label: "Dashboard", Icon: LayoutDashboard, accent: "teal" },
   { href: "/data/projects/", label: "Pipelines", Icon: GitBranch, accent: "teal" },
   { href: "/observability", label: "Observability", Icon: Activity, accent: "teal" },
-  { href: "/templates/", label: "Templates", Icon: Layers, accent: "teal" },
+  { href: "/app/templates/", label: "Templates", Icon: Layers, accent: "teal" },
 ];
 
 export default function Sidebar() {
@@ -56,20 +55,6 @@ export default function Sidebar() {
 
       {/* Bottom */}
       <nav className="flex w-full flex-col items-center gap-5 pb-4">
-        <a
-  href="http://localhost:8080/help"
-  target="_blank" // optional: opens in a new tab
-  rel="noopener noreferrer"
-  className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
-    isActive("/help") ? "bg-orange-100 text-orange-600" : "text-gray-700"
-  } hover:bg-gray-100`}
->
-  <HelpCircle className="h-5 w-5" />
-  {/* Help */}
-</a>
-
-        <Divider />
-
         <IconLink href="/settings" label="Settings" accent="orange" active={isActive("/settings")}>
           <Settings className="h-5 w-5" />
         </IconLink>

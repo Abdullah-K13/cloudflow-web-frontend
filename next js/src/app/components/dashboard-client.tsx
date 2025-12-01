@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { apiClient } from "@/lib/services/apiClient";
 import PipelineNameModal from "./ui/pipeline-name-modal";
 
@@ -62,7 +62,6 @@ export default function DashboardClient({
   userRole,
 }: Props) {
   const router = useRouter();
-  const [searchQuery, setSearchQuery] = useState("");
   const [isClient, setIsClient] = useState(false);
   const [recentArchitectures, setRecentArchitectures] = useState<RecentArchitecture[]>([]);
   const [loading, setLoading] = useState(true);
@@ -173,18 +172,6 @@ export default function DashboardClient({
           <p className="mb-6 text-sm text-gray-500">
             Build, explore, and manage your pipelines with ease.
           </p>
-
-          {/* Search Bar */}
-          <div className="relative mb-8 max-w-md">
-            <input
-              type="text"
-              placeholder="Search pipelines..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="peer w-full rounded-xl border border-gray-200 bg-white/90 px-10 py-2 text-sm outline-none transition-all duration-200 placeholder:text-gray-400 focus:border-orange-300 focus:ring-4 focus:ring-orange-100"
-            />
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400 transition-colors duration-200 peer-focus:text-orange-600" />
-          </div>
         </div>
 
         {/* Primary CTA (single button) */}
@@ -267,7 +254,7 @@ export default function DashboardClient({
           )}
 
           <Link
-            href="/pipelines"
+            href="/data/pipelines"
             className="mt-4 inline-flex items-center text-sm font-medium text-orange-600 transition-colors duration-200 hover:text-orange-700"
           >
             View All

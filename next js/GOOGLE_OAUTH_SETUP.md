@@ -2,6 +2,53 @@
 
 ## Common Errors
 
+### Error 0: "The given origin is not allowed for the given client ID" (403 Error)
+
+**This is the MOST COMMON error when Google Sign-In stops working!**
+
+**Symptoms:**
+- Error in console: `[GSI_LOGGER]: The given origin is not allowed for the given client ID`
+- 403 error when loading Google button
+- Button doesn't appear or shows error
+
+**Cause:** The URL where your app is running is not in the "Authorized JavaScript origins" list in Google Cloud Console.
+
+**Quick Fix:**
+1. **Find your current origin:**
+   - Check the browser address bar (e.g., `http://localhost:3000` or `https://yourdomain.com`)
+   - The error message in the app will also show your current origin
+
+2. **Add it to Google Cloud Console:**
+   - Go to [Google Cloud Console](https://console.cloud.google.com/)
+   - Navigate to **APIs & Services** → **Credentials**
+   - Click on your **OAuth 2.0 Client ID**
+   - Scroll to **Authorized JavaScript origins**
+   - Click **+ ADD URI**
+   - Enter your origin (e.g., `http://localhost:3000` or `https://yourdomain.com`)
+   - **Important:** 
+     - For localhost, use `http://` (not `https://`)
+     - For production, use `https://` (not `http://`)
+     - Don't include trailing slashes
+     - Don't include paths (just the origin: protocol + domain + port)
+   - Click **SAVE**
+
+3. **Wait and test:**
+   - Wait 1-2 minutes for changes to propagate
+   - Refresh your app page
+   - Try signing in again
+
+**Common Mistakes:**
+- ❌ Adding `http://localhost:3000/` (with trailing slash)
+- ❌ Adding `http://localhost:3000/dash` (with path)
+- ❌ Using `https://` for localhost
+- ❌ Forgetting to click SAVE
+- ❌ Not waiting for changes to propagate
+
+**Example Origins:**
+- Development: `http://localhost:3000`
+- Production: `https://yourdomain.com`
+- Custom port: `http://localhost:3001`
+
 ### Error 1: FedCM AbortError
 ```
 [GSI_LOGGER]: FedCM get() rejects with AbortError: signal is aborted without reason

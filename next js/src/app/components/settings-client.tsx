@@ -10,6 +10,14 @@ import {
   Loader2,
 } from "lucide-react";
 import { apiClient } from "@/lib/services/apiClient";
+import { AWS_REGIONS_OPTIONS } from "./awsOptions";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
 /** Minimal helpers */
 const mask = (s: string) => "•".repeat(Math.max(16, s.length));
@@ -803,12 +811,22 @@ export default function SettingsClientBasic() {
                       />
                     </Field>
                     <Field label="Default Region" full>
-                      <input
-                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors"
-                        value={awsRegion}
-                        onChange={(e) => setAwsRegion(e.target.value)}
-                        placeholder="us-east-1"
-                      />
+                      <Select value={awsRegion} onValueChange={setAwsRegion}>
+                        <SelectTrigger className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100 transition-colors h-auto min-h-[42px] hover:bg-white focus:bg-white">
+                          <SelectValue placeholder="Select region" className="text-gray-900" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px] rounded-2xl border-slate-200 shadow-lg !bg-white backdrop-blur-none">
+                          {AWS_REGIONS_OPTIONS.map((option) => (
+                            <SelectItem 
+                              key={option.value} 
+                              value={option.value}
+                              className="cursor-pointer bg-white hover:bg-orange-50 focus:bg-orange-50 focus:text-slate-900"
+                            >
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </Field>
                     <p className="col-span-full rounded-lg border border-orange-200 bg-orange-50 p-3 text-xs text-orange-800">
                       <LockKeyhole className="mr-1 inline h-4 w-4" />
