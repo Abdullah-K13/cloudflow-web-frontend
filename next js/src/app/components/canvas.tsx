@@ -109,17 +109,17 @@ const AWS_SERVICES: ServiceItem[] = [
   { id: "kinesis", label: "AWS Kinesis", img: "/aws-icons/kinesis.png" },
   { id: "sqs", label: "AWS SQS", img: "/aws-icons/sqs.png" },
   { id: "dynamodb", label: "DynamoDB", img: "/aws-icons/DynamoDB.png" },
-  { id: "cloudfront", label: "CloudFront", img: "/placeholder-gtzyx.png" },
-  { id: "apigateway", label: "API Gateway", img: "/aws-api-gateway-icon.png" },
+  { id: "cloudfront", label: "CloudFront", img: "/aws-icons/CloudFront.png" },
+  { id: "apigateway", label: "API Gateway", img: "/aws-icons/api-gateway.png" },
   // New Services
-  { id: "ecs", label: "AWS ECS", img: "/aws-icons/ecs.png" },
+  { id: "ecs", label: "AWS ECS", img: "/aws-icons/aws-ecs.webp" },
   { id: "ecr", label: "AWS ECR", img: "/aws-icons/ecr.png" },
-  { id: "secretsmanager", label: "Secrets Manager", img: "/aws-icons/secretsmanager.png" },
+  { id: "secretsmanager", label: "Secrets Manager", img: "/aws-icons/secrets-manager.png" },
   { id: "cognito", label: "Cognito", img: "/aws-icons/cognito.png" },
-  { id: "vpc", label: "AWS VPC", img: "/aws-icons/vpc.png" },
-  { id: "cloudwatch", label: "CloudWatch", img: "/aws-icons/cloudwatch.png" },
+  { id: "vpc", label: "AWS VPC", img: "/aws-icons/aws-vpc-icon.webp" },
+  { id: "cloudwatch", label: "CloudWatch", img: "/aws-icons/cloudwatch.jpeg" },
   { id: "elasticache", label: "ElastiCache", img: "/aws-icons/elasticache.png" },
-  { id: "sfn", label: "Step Functions", img: "/aws-icons/stepfunctions.png" },
+  // { id: "sfn", label: "Step Functions", img: "/aws-icons/stepfunctions.png" },
   { id: "events_rule", label: "EventBridge Rule", img: "/aws-icons/eventbridge.png" },
 ];
 
@@ -203,6 +203,7 @@ const TYPE_MAP: Record<string, ExtendedPlanNodeType> = {
   sfn: "sfn",
   events: "events_rule",
   "events.rule": "events_rule",
+  events_rule: "events_rule", // Add direct mapping for events_rule
   rds: "rds",
   ec2: "ec2",
   cloudfront: "other",
@@ -286,8 +287,8 @@ function computeIntent(src: string, tgt: string): "notify" | "consume" | "invoke
   if (src === "sns" && (tgt === "lambda" || tgt === "sqs")) return "deliver";
   // AWS SQS
   if (src === "sqs" && tgt === "lambda") return "consume";
-  // AWS EventBridge Rule
-  if (src === "events_rule" && tgt === "lambda") return "notify";
+  // AWS EventBridge Rule (handle both kind format "aws.events.rule" and type format "events_rule")
+  if ((src === "events_rule" || src === "aws.events.rule") && (tgt === "lambda" || tgt === "aws.lambda")) return "notify";
   // AWS API Gateway
   if (src === "apigateway" && tgt === "lambda") return "invoke";
   // AWS DynamoDB Streams
@@ -498,9 +499,15 @@ function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
     };
   }
   if (kind === "aws.events.rule") {
+    // CDK requires either schedule OR eventPattern to be defined
+    // Only include schedule if it's a non-empty string
+    const schedule = typeof d.schedule === "string" && d.schedule.trim() !== "" ? d.schedule : undefined;
+    // Only include pattern if it's a non-empty object
+    const pattern = d.pattern && typeof d.pattern === "object" && Object.keys(d.pattern).length > 0 ? d.pattern : undefined;
+    
     return {
-      pattern: d.pattern ?? undefined,
-      schedule: d.schedule || undefined,
+      ...(pattern ? { pattern } : {}),
+      ...(schedule ? { schedule } : {}),
       ruleName: d.ruleName || undefined,
       targets: d.targets || undefined,
       physicalName: d.ruleName || undefined,
@@ -1201,6 +1208,8 @@ const CanvasInner = (
       const region = svc.config?.region || 
         (provider === "gcp" ? "us-central1" : provider === "azure" ? "eastus" : "us-east-1");
 
+      // Request format according to API guide:
+      // { service: string, cloud: string, region: string, config: object }
       const res = await fetch(`${API_BASE}/cost-optimization/price`, {
         method: "POST",
         headers: getHeaders(true),
@@ -1212,24 +1221,28 @@ const CanvasInner = (
         })
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.price !== undefined) {
-          setNodes(nds => nds.map(n => 
-            n.id === node.id 
-              ? { 
-                  ...n, 
-                  data: { 
-                    ...n.data, 
-                    cost: data.price,
-                    costIsEstimated: data.isEstimated || false
-                  } 
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error(`Failed to fetch cost for ${serviceName}:`, errorText);
+        return;
+      }
+
+      // Response format according to API guide:
+      // { price: number, currency: string, isEstimated: boolean, configUsed: object }
+      const data = await res.json();
+      if (data.price !== undefined) {
+        setNodes(nds => nds.map(n => 
+          n.id === node.id 
+            ? { 
+                ...n, 
+                data: { 
+                  ...n.data, 
+                  cost: data.price,
+                  costIsEstimated: data.isEstimated || false
                 } 
-              : n
-          ));
-        }
-      } else {
-        console.error(`Failed to fetch cost for ${serviceName}:`, await res.text());
+              } 
+            : n
+        ));
       }
     } catch (e) {
       console.error("Failed to fetch cost", e);
@@ -1266,34 +1279,61 @@ const CanvasInner = (
       const plan = buildPlan();
       const payload = buildDeploymentPayload(plan);
 
-      // Construct IR from payload
+      // Construct IR from payload - remove position from nodes as it's not needed for analysis
       const ir = {
         project: payload.project,
         env: payload.env,
         region: payload.region,
-        nodes: payload.nodes,
+        nodes: payload.nodes.map(({ position, ...node }) => node), // Remove position field
         edges: payload.edges
       };
+
+      // Construct the cost optimization payload
+      const costOptimizePayload = {
+        cloud: provider,
+        ir: ir,
+        requirements: requirements
+      };
+
+      // Print the cost optimization payload to console
+      console.log("=== Cost Optimization Payload ===");
+      console.log(JSON.stringify(costOptimizePayload, null, 2));
 
       const res = await fetch(`${API_BASE}/cost-optimization/analyze`, {
         method: "POST",
         headers: getHeaders(true),
-        body: JSON.stringify({
-          ir,
-          cloud: provider,
-          requirements
-        })
+        body: JSON.stringify(costOptimizePayload)
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        setOptimizationSuggestions(data.suggestions);
-        setTotalSavings(data.totalSavings);
-        setIsRequirementsOpen(false);
-        setIsResultsOpen(true);
+      if (!res.ok) {
+        const errorText = await res.text();
+        let errorMsg = "Optimization analysis failed";
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMsg = errorData?.detail?.message || errorData?.detail || errorMsg;
+        } catch {
+          errorMsg = errorText || errorMsg;
+        }
+        throw new Error(errorMsg);
       }
-    } catch (e) {
-      alert("Optimization analysis failed");
+
+      const data = await res.json();
+      
+      // Handle response according to API guide
+      // Response: { suggestions: [...], totalSavings: number, totalSavingsPercent: number, totalMonthlyCost: number }
+      setOptimizationSuggestions(data.suggestions || []);
+      setTotalSavings(data.totalSavings || 0);
+      
+      // Update total cost if provided in response
+      if (data.totalMonthlyCost !== undefined) {
+        setCurrentTotalCost(data.totalMonthlyCost);
+      }
+      
+      setIsRequirementsOpen(false);
+      setIsResultsOpen(true);
+    } catch (e: any) {
+      console.error("Optimization analysis error:", e);
+      alert(e?.message || "Optimization analysis failed. Please try again.");
     } finally {
       setIsAnalyzing(false);
     }
@@ -2365,11 +2405,10 @@ const CanvasInner = (
         onClose={() => setIsResultsOpen(false)}
         suggestions={optimizationSuggestions}
         totalSavings={totalSavings}
-        onApply={(id) => alert(`Applying suggestion ${id} (Implementation coming soon)`)}
       />
 
       {/* Total Cost Panel */}
-      <div className="absolute bottom-6 left-6 z-10 bg-white/90 backdrop-blur border border-gray-200 rounded-xl shadow-lg p-4 w-64">
+      {/* <div className="absolute bottom-6 left-6 z-10 bg-white/90 backdrop-blur border border-gray-200 rounded-xl shadow-lg p-4 w-64">
         <div className="flex items-center gap-2 text-slate-500 mb-1">
           <DollarSign size={16} />
           <span className="text-xs font-semibold uppercase tracking-wider">Total Monthly Cost</span>
@@ -2380,7 +2419,7 @@ const CanvasInner = (
         <div className="text-xs text-slate-400 mt-1">
           Estimated based on configuration
         </div>
-      </div>
+      </div> */}
 
       {/* ===== New Right-side Palette Panel ================================== */}
       <aside
@@ -2463,106 +2502,54 @@ const CanvasInner = (
 
             {/* AWS-specific buttons */}
             {provider === "aws" && (
-              <>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={handleCompile}
-                    disabled={compiling}
-                    className={[
-                      "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                      "bg-amber-600 text-white hover:bg-amber-700",
-                      "focus:outline-none focus:ring-4 focus:ring-amber-200/70",
-                      "disabled:opacity-60 disabled:cursor-not-allowed",
-                      "shadow-sm transition-all",
-                    ].join(" ")}
-                    title="Compile (CDK synth)"
-                  >
-                    {compiling ? "Compiling…" : "Compile"}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleBootstrap}
-                    disabled={bootstrapping}
-                    className={[
-                      "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                      "bg-purple-600 text-white hover:bg-purple-700",
-                      "focus:outline-none focus:ring-4 focus:ring-purple-200/70",
-                      "disabled:opacity-60 disabled:cursor-not-allowed",
-                      "shadow-sm transition-all",
-                    ].join(" ")}
-                    title="Bootstrap CDK environment"
-                  >
-                    {bootstrapping ? "Bootstrapping…" : "Bootstrap"}
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={handleDeploy}
-                    disabled={deploying}
-                    className={[
-                      "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                      "bg-teal-600 text-white hover:bg-teal-700",
-                      "focus:outline-none focus:ring-4 focus:ring-teal-200/70",
-                      "disabled:opacity-60 disabled:cursor-not-allowed",
-                      "shadow-sm transition-all",
-                    ].join(" ")}
-                    title="Deploy"
-                  >
-                    {deploying ? (
-                      <>
-                        <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.25" />
-                          <path d="M21 12a9 9 0 0 1-9 9" stroke="currentColor" strokeWidth="3" />
-                        </svg>
-                        Deploying…
-                      </>
-                    ) : (
-                      <>
-                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                          <path d="M12 2c3.5 0 6 2.5 6 6 0 3.2-2.2 6.4-5 8l-1 6-3-4-4-3 6-1c1.6-2.8 4.8-5 8-5 0-3.5-2.5-6-6-6z" />
-                        </svg>
-                        Deploy
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleStatus}
-                    disabled={checkingStatus}
-                    className={[
-                      "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                      "bg-blue-600 text-white hover:bg-blue-700",
-                      "focus:outline-none focus:ring-4 focus:ring-blue-200/70",
-                      "disabled:opacity-60 disabled:cursor-not-allowed",
-                      "shadow-sm transition-all",
-                    ].join(" ")}
-                    title="Check CDK stack status"
-                  >
-                    {checkingStatus ? "Checking…" : "Status"}
-                  </button>
-                </div>
-
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={handleDestroy}
-                  disabled={destroying}
+                  onClick={handleDeploy}
+                  disabled={deploying}
                   className={[
-                    "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                    "bg-red-600 text-white hover:bg-red-700",
-                    "focus:outline-none focus:ring-4 focus:ring-red-200/70",
+                    "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                    "bg-teal-600 text-white hover:bg-teal-700",
+                    "focus:outline-none focus:ring-4 focus:ring-teal-200/70",
                     "disabled:opacity-60 disabled:cursor-not-allowed",
                     "shadow-sm transition-all",
                   ].join(" ")}
-                  title="Destroy all stacks"
+                  title="Deploy"
                 >
-                  {destroying ? "Destroying…" : "Destroy"}
+                  {deploying ? (
+                    <>
+                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+                        <path d="M21 12a9 9 0 0 1-9 9" stroke="currentColor" strokeWidth="3" />
+                      </svg>
+                      Deploying…
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                        <path d="M12 2c3.5 0 6 2.5 6 6 0 3.2-2.2 6.4-5 8l-1 6-3-4-4-3 6-1c1.6-2.8 4.8-5 8-5 0-3.5-2.5-6-6-6z" />
+                      </svg>
+                      Deploy
+                    </>
+                  )}
                 </button>
-              </>
+
+                <button
+                  type="button"
+                  onClick={handleStatus}
+                  disabled={checkingStatus}
+                  className={[
+                    "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                    "bg-blue-600 text-white hover:bg-blue-700",
+                    "focus:outline-none focus:ring-4 focus:ring-blue-200/70",
+                    "disabled:opacity-60 disabled:cursor-not-allowed",
+                    "shadow-sm transition-all",
+                  ].join(" ")}
+                  title="Check CDK stack status"
+                >
+                  {checkingStatus ? "Checking…" : "Status"}
+                </button>
+              </div>
             )}
 
             {/* GCP-specific buttons */}
@@ -2613,22 +2600,6 @@ const CanvasInner = (
                       Deploy
                     </>
                   )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleDestroy}
-                  disabled={destroying}
-                  className={[
-                    "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                    "bg-red-600 text-white hover:bg-red-700",
-                    "focus:outline-none focus:ring-4 focus:ring-red-200/70",
-                    "disabled:opacity-60 disabled:cursor-not-allowed",
-                    "shadow-sm transition-all",
-                  ].join(" ")}
-                  title="Destroy GCP resources"
-                >
-                  {destroying ? "Destroying…" : "Destroy"}
                 </button>
               </>
             )}
@@ -2681,22 +2652,6 @@ const CanvasInner = (
                       Deploy
                     </>
                   )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleDestroy}
-                  disabled={destroying}
-                  className={[
-                    "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                    "bg-red-600 text-white hover:bg-red-700",
-                    "focus:outline-none focus:ring-4 focus:ring-red-200/70",
-                    "disabled:opacity-60 disabled:cursor-not-allowed",
-                    "shadow-sm transition-all",
-                  ].join(" ")}
-                  title="Destroy Azure resources"
-                >
-                  {destroying ? "Destroying…" : "Destroy"}
                 </button>
               </>
             )}

@@ -3,6 +3,13 @@
 import React from "react";
 import { X, ArrowRight, Check, AlertTriangle } from "lucide-react";
 
+interface SuggestedChange {
+    nodeId: string;
+    changes: {
+        props?: Record<string, any>;
+    };
+}
+
 interface OptimizationSuggestion {
     id: string;
     type: string;
@@ -14,6 +21,7 @@ interface OptimizationSuggestion {
     savings: number;
     savingsPercent: number;
     affectedNodes: string[];
+    suggestedChanges: SuggestedChange[];
     canAutoApply: boolean;
 }
 
@@ -22,15 +30,14 @@ interface OptimizationResultsProps {
     onClose: () => void;
     suggestions: OptimizationSuggestion[];
     totalSavings: number;
-    onApply: (suggestionId: string) => void;
+    onApply?: (suggestionId: string) => void;
 }
 
 const OptimizationResults: React.FC<OptimizationResultsProps> = ({
     isOpen,
     onClose,
     suggestions,
-    totalSavings,
-    onApply
+    totalSavings
 }) => {
     if (!isOpen) return null;
 
@@ -92,7 +99,7 @@ const OptimizationResults: React.FC<OptimizationResultsProps> = ({
 
                                     <p style={{ margin: "0 0 12px", fontSize: 14, color: "#475569" }}>{suggestion.description || "Optimization suggestion based on your requirements."}</p>
 
-                                    <div style={{ display: "flex", alignItems: "center", gap: 24, fontSize: 14 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 24, fontSize: 14, marginBottom: 12 }}>
                                         <div>
                                             <span style={{ color: "#64748b", display: "block", fontSize: 12 }}>Current Cost</span>
                                             <span style={{ fontWeight: 500 }}>${suggestion.currentCost.toFixed(2)}</span>
@@ -107,19 +114,51 @@ const OptimizationResults: React.FC<OptimizationResultsProps> = ({
                                             <span style={{ fontWeight: 600, color: "#10b981" }}>${suggestion.savings.toFixed(2)} ({suggestion.savingsPercent.toFixed(0)}%)</span>
                                         </div>
                                     </div>
-                                </div>
 
-                                {suggestion.canAutoApply && (
-                                    <button
-                                        onClick={() => onApply(suggestion.id)}
-                                        style={{
-                                            alignSelf: "center", padding: "8px 16px", backgroundColor: "#0f172a", color: "white",
-                                            border: "none", borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: "pointer"
-                                        }}
-                                    >
-                                        Apply
-                                    </button>
-                                )}
+                                    {/* Suggested Changes */}
+                                    {suggestion.suggestedChanges && suggestion.suggestedChanges.length > 0 && (
+                                        <div style={{
+                                            marginTop: 12,
+                                            padding: 12,
+                                            backgroundColor: "#f8fafc",
+                                            borderRadius: 6,
+                                            border: "1px solid #e2e8f0"
+                                        }}>
+                                            <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 8 }}>
+                                                Suggested Configurations:
+                                            </div>
+                                            {suggestion.suggestedChanges.map((change, idx) => (
+                                                <div key={idx} style={{ marginBottom: idx < suggestion.suggestedChanges.length - 1 ? 12 : 0 }}>
+                                                    <div style={{ fontSize: 12, fontWeight: 500, color: "#64748b", marginBottom: 6 }}>
+                                                        Service: <span style={{ color: "#1e293b" }}>{change.nodeId}</span>
+                                                    </div>
+                                                    {change.changes.props && (
+                                                        <div style={{
+                                                            padding: 8,
+                                                            backgroundColor: "white",
+                                                            borderRadius: 4,
+                                                            border: "1px solid #e2e8f0",
+                                                            fontSize: 12,
+                                                            fontFamily: "monospace"
+                                                        }}>
+                                                            {Object.entries(change.changes.props).map(([key, value]) => (
+                                                                <div key={key} style={{ marginBottom: 4, color: "#1e293b" }}>
+                                                                    <span style={{ color: "#64748b" }}>{key}:</span>{" "}
+                                                                    <span style={{ 
+                                                                        color: typeof value === "number" ? "#059669" : "#0ea5e9",
+                                                                        fontWeight: 500 
+                                                                    }}>
+                                                                        {typeof value === "object" ? JSON.stringify(value) : String(value)}
+                                                                    </span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         ))
                     )}

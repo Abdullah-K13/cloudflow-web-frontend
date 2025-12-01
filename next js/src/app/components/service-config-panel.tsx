@@ -733,9 +733,9 @@ export default function ServiceConfigPanel({
                   {isAWSService ? (
                     <RegionSelect
                       id="s3Region"
-                      value={d.region || ""}
-                      onValueChange={(value) => updateDetails({ region: value })}
-                      options={[{ value: "", label: "Use base region" }, ...AWS_REGIONS_OPTIONS]}
+                      value={d.region || "base"}
+                      onValueChange={(value) => updateDetails({ region: value === "base" ? "" : value })}
+                      options={[{ value: "base", label: "Use base region" }, ...AWS_REGIONS_OPTIONS]}
                       error={errors.s3Region}
                       placeholder="Use base region"
                     />
