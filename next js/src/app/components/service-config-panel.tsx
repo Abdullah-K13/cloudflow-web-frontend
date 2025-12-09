@@ -187,7 +187,7 @@ const defaultDetailsFor = (service: { id?: string; label?: string }) => {
       };
     case "vm":
       return {
-        vmSize: "Standard_B1s",
+        vmSize: "Standard_B2s",  // Changed default to B2s (more widely available)
         adminUsername: "azureuser",
         adminPassword: "",
         osType: "Linux",
@@ -469,7 +469,7 @@ export default function ServiceConfigPanel({
     name: service.label ?? "",
     description: "",
     environment: "development",
-    region: service.label?.startsWith("Azure") ? "eastus" : "",
+    region: service.label?.startsWith("Azure") ? "southeastasia" : "",
   };
 
   const seeded = service.config ?? { ...baseDefault, details: defaultDetailsFor(service) };
@@ -482,7 +482,7 @@ export default function ServiceConfigPanel({
     // Set default region based on service type if not already set
     if (!nextBase.region || nextBase.region === "") {
       if (service.label?.startsWith("Azure")) {
-        nextBase.region = "eastus";
+        nextBase.region = "southeastasia";
       }
     }
     const next = service.config?.details ? service.config : { ...nextBase, details: defaultDetailsFor(service) };

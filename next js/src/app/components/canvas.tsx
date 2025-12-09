@@ -695,7 +695,7 @@ function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
   }
   if (kind === "azure.vm") {
     return {
-      vmSize: d.vmSize || "Standard_B1s",
+      vmSize: d.vmSize || "Standard_B2s",  // Changed default to B2s (more widely available)
       adminUsername: d.adminUsername || "azureuser",
       adminPassword: d.adminPassword || undefined,
       osType: d.osType || "Linux",
@@ -1411,8 +1411,28 @@ const CanvasInner = (
   const buildDeploymentPayload = useCallback((plan: Plan): DeployPayload & { location?: string } => {
     const project = "canvas-project";
     const env = "dev";
-    // Use appropriate default region based on provider
-    const region = plan.awsRegion || (provider === "gcp" ? "us-central1" : "ap-southeast-2");
+    
+    // Extract region from node props if available, otherwise use plan.awsRegion or defaults
+    let region = plan.awsRegion;
+    
+    // Check all nodes for region (user may have set it in any service config)
+    if (plan.nodes && plan.nodes.length > 0) {
+      for (const node of plan.nodes) {
+        const nodeRegion = node?.props?.region;
+        if (nodeRegion && nodeRegion.trim()) {
+          region = nodeRegion.trim();
+          break; // Use first found region
+        }
+      }
+    }
+    
+    // Use appropriate default region based on provider if still not set
+    if (!region) {
+      region = provider === "gcp" ? "us-central1" : provider === "azure" ? "southeastasia" : "ap-southeast-2";
+    }
+    
+    // Debug: log the region being used
+    console.log("Deployment region:", region, "Provider:", provider);
 
     // For GCP, also include location (synonym for region)
     const payload: DeployPayload & { location?: string } = {
