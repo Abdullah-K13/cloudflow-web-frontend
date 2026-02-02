@@ -24,7 +24,7 @@ type LinkItem = {
 };
 
 const mainNav: LinkItem[] = [
-  { href: "/", label: "Dashboard", Icon: LayoutDashboard, accent: "teal" },
+  { href: "/dash", label: "Dashboard", Icon: LayoutDashboard, accent: "teal" },
   { href: "/data/projects/", label: "Pipelines", Icon: GitBranch, accent: "teal" },
   { href: "/observability", label: "Observability", Icon: Activity, accent: "teal" },
   { href: "/templates/", label: "Templates", Icon: Layers, accent: "teal" },

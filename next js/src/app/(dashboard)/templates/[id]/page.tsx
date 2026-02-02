@@ -1,10 +1,16 @@
 // src/app/(dashboard)/templates/[id]/page.tsx
 
 import { cookies } from "next/headers";
-import TemplateDetailClient from "@/src/app/components/template-detail-client";
+import TemplateDetailClient from "@/components/template-detail-client";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
+type VariableSchema = {
+  type: string;
+  required: boolean;
+  description?: string;
+};
 
 type TemplateDetail = {
   id: string;
@@ -14,6 +20,7 @@ type TemplateDetail = {
   tags: string[];
   description?: string;
   folder: string;
+  variables: Record<string, VariableSchema>; // 👈 add this
 };
 
 export default async function TemplateDetailPage({
@@ -23,7 +30,6 @@ export default async function TemplateDetailPage({
 }) {
   const { id } = params;
 
-  // 👇 NOTE: we await cookies() because TS says it returns Promise<ReadonlyRequestCookies>
   const cookieStore = await cookies();
   const token = cookieStore.get("access_token")?.value;
 
