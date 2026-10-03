@@ -5,6 +5,7 @@ import { ChevronRight, ChevronLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import CredentialsModal from "./ui/credentials-modal";
 import SuccessModal from "./ui/success-modal";
+import ErrorModal from "./ui/error-modal";
 import ServiceConfigPanel from "./service-config-panel";
 import RequirementsModal from "./requirements-modal";
 import OptimizationResults from "./optimization-results";
@@ -85,7 +86,7 @@ const ServiceNode: React.FC<{ data: { label: string; img: string; cost?: number;
       }}>
         <DollarSign size={10} />
         <span>
-          {data.cost !== undefined 
+          {data.cost !== undefined
             ? `$${data.cost.toFixed(2)}/mo${data.costIsEstimated ? " (est.)" : ""}`
             : "Calc..."}
         </span>
@@ -459,7 +460,7 @@ const isValidConnection = (src: string, tgt: string, provider?: Provider): boole
   // Normalize types if needed (e.g. remove 'aws.' prefix if present in internal types, though here we use internal IDs)
   const allowed = CONNECTION_RULES[src];
   if (!allowed) return false;
-  
+
   // Check if target is in allowed list
   return allowed.includes(tgt);
 };
@@ -504,7 +505,7 @@ function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
     const schedule = typeof d.schedule === "string" && d.schedule.trim() !== "" ? d.schedule : undefined;
     // Only include pattern if it's a non-empty object
     const pattern = d.pattern && typeof d.pattern === "object" && Object.keys(d.pattern).length > 0 ? d.pattern : undefined;
-    
+
     return {
       ...(pattern ? { pattern } : {}),
       ...(schedule ? { schedule } : {}),
@@ -528,7 +529,7 @@ function normalizeToDesiredProps(kind: string, raw: any): Record<string, any> {
     const sortKeyObj = d.sortKey;
     const partitionKey = typeof partitionKeyObj === 'object' ? partitionKeyObj?.name : (partitionKeyObj || "pk");
     const sortKey = typeof sortKeyObj === 'object' ? sortKeyObj?.name : sortKeyObj;
-    
+
     return {
       partitionKey: partitionKey,
       sortKey: sortKey,
@@ -793,14 +794,14 @@ const CanvasInner = (
 
   /* ===== New: provider + palette state (UI only) ====================== */
   const [provider, setProvider] = useState<Provider>(initialProvider || "aws");
-  
+
   // Update provider when initialProvider changes (e.g., when loading a pipeline)
   useEffect(() => {
     if (initialProvider) {
       setProvider(initialProvider);
     }
   }, [initialProvider]);
-  
+
   const currentServices = React.useMemo<ServiceItem[]>(() => {
     switch (provider) {
       case "gcp":
@@ -817,7 +818,7 @@ const CanvasInner = (
   const edgesInitializedRef = useRef(false);
   useEffect(() => {
     // Check if items actually changed (by comparing IDs)
-    const itemsChanged = 
+    const itemsChanged =
       items.length !== prevItemsRef.current.length ||
       items.some((item, idx) => {
         const prev = prevItemsRef.current[idx];
@@ -969,10 +970,10 @@ const CanvasInner = (
           cost: 0, // Init cost
         },
       };
-      
+
       setNodes((nds) => nds.concat(newNode));
       onSelectedNodesChange?.([{ id: newId, type: svc.id }]);
-      
+
       // Fetch cost after node is added (fetchNodeCost will be available via closure)
       setTimeout(() => {
         // Use a type assertion to avoid dependency issue - fetchNodeCost is defined later but available via closure
@@ -1053,14 +1054,14 @@ const CanvasInner = (
       "vpc": { aws: "vpc", gcp: "vpc", azure: "vnet" },
       "cloudwatch": { aws: "cloudwatch", gcp: "monitoring", azure: "appinsights" },
       "elasticache": { aws: "elasticache", gcp: "memorystore", azure: "redis_cache" },
-      
+
       // GCP Services
       "gcp-storage": { aws: "s3", gcp: "cloud_storage", azure: "blob_storage" },
       "pubsub": { aws: "sns", gcp: "pubsub", azure: "servicebus" },
       "cloud-run": { aws: "ecs", gcp: "cloud_run", azure: "containerapp" },
       "secret-manager": { aws: "secretsmanager", gcp: "secret_manager", azure: "keyvault" },
       "firestore": { aws: "dynamodb", gcp: "firestore", azure: "cosmosdb" },
-      
+
       // Azure Services
       "azure.storage": { aws: "s3", gcp: "cloud_storage", azure: "blob_storage" },
       "azure.servicebus": { aws: "sqs", gcp: "pubsub", azure: "servicebus" },
@@ -1155,17 +1156,17 @@ const CanvasInner = (
       if (normalized.memory) {
         // Convert "512Mi" to MB
         const memoryStr = String(normalized.memory);
-        const memoryMB = memoryStr.includes("Mi") 
+        const memoryMB = memoryStr.includes("Mi")
           ? parseInt(memoryStr.replace("Mi", ""))
           : memoryStr.includes("Gi")
-          ? parseInt(memoryStr.replace("Gi", "")) * 1024
-          : parseInt(memoryStr) || 512;
+            ? parseInt(memoryStr.replace("Gi", "")) * 1024
+            : parseInt(memoryStr) || 512;
         pricingConfig.memory = memoryMB;
       }
       if (normalized.cpu) {
         // Convert "1000m" to number
         const cpuStr = String(normalized.cpu);
-        pricingConfig.cpu = cpuStr.includes("m") 
+        pricingConfig.cpu = cpuStr.includes("m")
           ? parseFloat(cpuStr.replace("m", "")) / 1000
           : parseFloat(cpuStr) || 1;
       }
@@ -1198,14 +1199,14 @@ const CanvasInner = (
       }
 
       // Get the kind for config transformation
-      const kind = KIND_MAP[node.type as ExtendedPlanNodeType] || 
+      const kind = KIND_MAP[node.type as ExtendedPlanNodeType] ||
         (provider === "gcp" ? "gcp.other" : provider === "azure" ? "azure.other" : "aws.other");
 
       // Transform config to pricing API format
       const pricingConfig = transformConfigForPricing(kind, svc.config || {}, provider);
 
       // Get region from config or use default
-      const region = svc.config?.region || 
+      const region = svc.config?.region ||
         (provider === "gcp" ? "us-central1" : provider === "azure" ? "eastus" : "us-east-1");
 
       // Request format according to API guide:
@@ -1231,16 +1232,16 @@ const CanvasInner = (
       // { price: number, currency: string, isEstimated: boolean, configUsed: object }
       const data = await res.json();
       if (data.price !== undefined) {
-        setNodes(nds => nds.map(n => 
-          n.id === node.id 
-            ? { 
-                ...n, 
-                data: { 
-                  ...n.data, 
-                  cost: data.price,
-                  costIsEstimated: data.isEstimated || false
-                } 
-              } 
+        setNodes(nds => nds.map(n =>
+          n.id === node.id
+            ? {
+              ...n,
+              data: {
+                ...n.data,
+                cost: data.price,
+                costIsEstimated: data.isEstimated || false
+              }
+            }
             : n
         ));
       }
@@ -1318,17 +1319,17 @@ const CanvasInner = (
       }
 
       const data = await res.json();
-      
+
       // Handle response according to API guide
       // Response: { suggestions: [...], totalSavings: number, totalSavingsPercent: number, totalMonthlyCost: number }
       setOptimizationSuggestions(data.suggestions || []);
       setTotalSavings(data.totalSavings || 0);
-      
+
       // Update total cost if provided in response
       if (data.totalMonthlyCost !== undefined) {
         setCurrentTotalCost(data.totalMonthlyCost);
       }
-      
+
       setIsRequirementsOpen(false);
       setIsResultsOpen(true);
     } catch (e: any) {
@@ -1406,7 +1407,7 @@ const CanvasInner = (
       else if (type === "kinesis" && details.streamName) preferredName = details.streamName;
       else if (type === "pubsub" && details.topicName) preferredName = details.topicName;
       else if (type === "azure.servicebus" && details.queueName) preferredName = details.queueName;
-      
+
       const name = preferredName ? sanitizeName(preferredName) : sanitizeName(svc?.label || n.id);
       return { id: n.id, type, name, props: { label: svc?.label, region: svc?.config?.region || (details as any).region || "", ...details } };
     });
@@ -1635,6 +1636,16 @@ const CanvasInner = (
     isOpen: false,
     title: "",
   });
+  const [errorModal, setErrorModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    details?: string;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+  });
   const router = useRouter();
 
   /* ----------------- Auto-save pipeline if needed ----------------- */
@@ -1801,7 +1812,7 @@ const CanvasInner = (
   const handleDeploy = async () => {
     const deploymentStartTime = Date.now(); // Track deployment start time
     let pipelineId: string | null = null;
-    
+
     try {
       const token = getAccessToken();
       if (!token) {
@@ -1832,14 +1843,14 @@ const CanvasInner = (
           typeof window === "undefined"
             ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
             : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
-        
+
         await fetch(`${API_BASE}/pipelines/${pipelineId}`, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${token}`,
           },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             status: "deploying",
             deployment_started_at: new Date().toISOString()
           }),
@@ -1913,14 +1924,14 @@ const CanvasInner = (
           typeof window === "undefined"
             ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
             : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
-        
+
         await fetch(`${API_BASE}/pipelines/${pipelineId}`, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${token}`,
           },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             status: "deployed",
             deployment_duration_sec: durationSec
           }),
@@ -1948,14 +1959,14 @@ const CanvasInner = (
             typeof window === "undefined"
               ? process.env.API_BASE_URL || "http://127.0.0.1:8000"
               : process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
-          
+
           await fetch(`${API_BASE}/pipelines/${pipelineId}`, {
             method: "PATCH",
             headers: {
               "Content-Type": "application/json",
               "Authorization": `Bearer ${token}`,
             },
-            body: JSON.stringify({ 
+            body: JSON.stringify({
               status: "failed",
               deployment_duration_sec: durationSec
             }),
@@ -1963,7 +1974,12 @@ const CanvasInner = (
         }
       }
 
-      alert(e?.message || "Something went wrong while deploying.");
+      setErrorModal({
+        isOpen: true,
+        title: "Deployment Failed",
+        message: "Something went wrong while deploying.",
+        details: e?.message || e,
+      });
     } finally {
       setDeploying(false);
     }
@@ -2017,10 +2033,20 @@ const CanvasInner = (
       // Update pipeline status to "ready" on successful compile
       await updatePipelineStatus("ready");
 
-      alert(`Compiled successfully (CDK synth).${data?.synth_output ? `\n\n${data.synth_output}` : ""}`);
+      setSuccessModal({
+        isOpen: true,
+        title: "Compiled Successfully! (CDK Synth) 🎉",
+        message: "Your infrastructure has been synthesized successfully.",
+        details: data?.synth_output || undefined,
+      });
     } catch (e: any) {
       console.error("Compile error:", e?.message || e);
-      alert(e?.message || "Something went wrong while compiling.");
+      setErrorModal({
+        isOpen: true,
+        title: "Compilation Failed",
+        message: "Something went wrong while compiling.",
+        details: e?.message || e,
+      });
     } finally {
       setCompiling(false);
     }
@@ -2077,10 +2103,20 @@ const CanvasInner = (
 
       // Success response: {message: "bootstrap ok", output: "..."}
       console.log("Bootstrap ok:", data);
-      alert(`CDK environment bootstrapped successfully! 🎉${data?.output ? `\n\n${data.output}` : ""}`);
+      setSuccessModal({
+        isOpen: true,
+        title: "Bootstrapped Successfully! 🎉",
+        message: "CDK environment bootstrapped successfully!",
+        details: data?.output || undefined,
+      });
     } catch (e: any) {
       console.error("Bootstrap error:", e?.message || e);
-      alert(e?.message || "Something went wrong while bootstrapping.");
+      setErrorModal({
+        isOpen: true,
+        title: "Bootstrap Failed",
+        message: "Something went wrong while bootstrapping.",
+        details: e?.message || e,
+      });
     } finally {
       setBootstrapping(false);
     }
@@ -2164,7 +2200,12 @@ const CanvasInner = (
       });
     } catch (e: any) {
       console.error("Destroy error:", e?.message || e);
-      alert(e?.message || "Something went wrong while destroying resources.");
+      setErrorModal({
+        isOpen: true,
+        title: "Destruction Failed",
+        message: "Something went wrong while destroying resources.",
+        details: e?.message || e,
+      });
     } finally {
       setDestroying(false);
     }
@@ -2200,7 +2241,7 @@ const CanvasInner = (
 
       // Use appropriate API endpoint based on provider
       const apiBase = provider === "gcp" ? GCP_API_BASE : provider === "azure" ? AZURE_API_BASE : AWS_API_BASE;
-      
+
       // Preview endpoint accepts {ir, creds} format
       // Backend will get credentials from user table if not provided
       const res = await fetch(`${apiBase}/preview`, {
@@ -2249,7 +2290,12 @@ const CanvasInner = (
       });
     } catch (e: any) {
       console.error("Preview error:", e?.message || e);
-      alert(e?.message || "Something went wrong while previewing.");
+      setErrorModal({
+        isOpen: true,
+        title: "Preview Failed",
+        message: "Something went wrong while previewing.",
+        details: e?.message || e,
+      });
     } finally {
       setPreviewing(false);
     }
@@ -2291,13 +2337,27 @@ const CanvasInner = (
       const stacks = data?.stacks || [];
       if (Array.isArray(stacks) && stacks.length > 0) {
         const stackList = stacks.join("\n");
-        alert(`Found ${stacks.length} stack(s):\n\n${stackList}`);
+        setSuccessModal({
+          isOpen: true,
+          title: "Stacks Found",
+          message: `Found ${stacks.length} stack(s).`,
+          details: stackList,
+        });
       } else {
-        alert("No stacks found.");
+        setSuccessModal({
+          isOpen: true,
+          title: "No Stacks Found",
+          message: "No CloudFormation stacks valid for this environment were found.",
+        });
       }
     } catch (e: any) {
       console.error("Status error:", e?.message || e);
-      alert(e?.message || "Something went wrong while checking status.");
+      setErrorModal({
+        isOpen: true,
+        title: "Status Check Failed",
+        message: "Something went wrong while checking status.",
+        details: e?.message || e,
+      });
     } finally {
       setCheckingStatus(false);
     }
@@ -2502,19 +2562,35 @@ const CanvasInner = (
 
             {/* AWS-specific buttons */}
             {provider === "aws" && (
-              <div className="grid grid-cols-2 gap-2">
+              <>
+                <button
+                  type="button"
+                  onClick={handlePreview}
+                  disabled={previewing}
+                  className={[
+                    "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                    "bg-indigo-600 text-white hover:bg-indigo-700",
+                    "focus:outline-none focus:ring-4 focus:ring-indigo-200/70",
+                    "disabled:opacity-60 disabled:cursor-not-allowed",
+                    "shadow-sm transition-all",
+                  ].join(" ")}
+                  title="Preview changes before deploying"
+                >
+                  {previewing ? "Previewing…" : "Preview"}
+                </button>
+
                 <button
                   type="button"
                   onClick={handleDeploy}
                   disabled={deploying}
                   className={[
-                    "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                    "bg-teal-600 text-white hover:bg-teal-700",
-                    "focus:outline-none focus:ring-4 focus:ring-teal-200/70",
+                    "w-full inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
+                    "bg-orange-400 text-white hover:bg-orange-500",
+                    "focus:outline-none focus:ring-4 focus:ring-orange-200/70",
                     "disabled:opacity-60 disabled:cursor-not-allowed",
                     "shadow-sm transition-all",
                   ].join(" ")}
-                  title="Deploy"
+                  title="Deploy to AWS"
                 >
                   {deploying ? (
                     <>
@@ -2533,23 +2609,7 @@ const CanvasInner = (
                     </>
                   )}
                 </button>
-
-                <button
-                  type="button"
-                  onClick={handleStatus}
-                  disabled={checkingStatus}
-                  className={[
-                    "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold",
-                    "bg-blue-600 text-white hover:bg-blue-700",
-                    "focus:outline-none focus:ring-4 focus:ring-blue-200/70",
-                    "disabled:opacity-60 disabled:cursor-not-allowed",
-                    "shadow-sm transition-all",
-                  ].join(" ")}
-                  title="Check CDK stack status"
-                >
-                  {checkingStatus ? "Checking…" : "Status"}
-                </button>
-              </div>
+              </>
             )}
 
             {/* GCP-specific buttons */}
@@ -2721,11 +2781,20 @@ const CanvasInner = (
       {/* Success Modal */}
       <SuccessModal
         isOpen={successModal.isOpen}
-        onClose={() => setSuccessModal({ isOpen: false, title: "" })}
+        onClose={() => setSuccessModal({ isOpen: false, title: "", message: "" })}
         title={successModal.title}
         message={successModal.message}
         details={successModal.details}
-        autoCloseDelay={successModal.details ? 0 : 3000} // Auto-close only if no details
+        autoCloseDelay={0}
+      />
+
+      {/* Error Modal */}
+      <ErrorModal
+        isOpen={errorModal.isOpen}
+        onClose={() => setErrorModal({ isOpen: false, title: "", message: "" })}
+        title={errorModal.title}
+        message={errorModal.message}
+        details={errorModal.details}
       />
     </div>
   );

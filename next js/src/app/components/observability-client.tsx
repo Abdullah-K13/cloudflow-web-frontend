@@ -29,6 +29,7 @@ export type Deployment = {
 };
 
 // Raw API shape from FastAPI /pipelines
+// Raw API shape from FastAPI /pipelines
 type PipelineApiResponse = {
   id: string;
   name: string;
@@ -38,6 +39,8 @@ type PipelineApiResponse = {
   status: string;
   created_at?: string;
   updated_at?: string;
+  deployment_started_at?: string | null;
+  deployment_duration_sec?: number | null;
   // other fields (payload, template_id, etc.) are ignored here
 };
 
@@ -81,7 +84,7 @@ export default function ObservabilityClient({ initialData }: Props) {
   const [env, setEnv] = useState<(typeof ENVS)[number]>("All");
   const [cloud, setCloud] = useState<(typeof CLOUDS)[number]>("All");
   const [status, setStatus] = useState<(typeof STATUSES)[number]>("All");
-  const [range, setRange] = useState<(typeof RANGES)[number]>("24h");
+  const [range, setRange] = useState<(typeof RANGES)[number]>("All");
   const [sort, setSort] = useState<"started_desc" | "started_asc">(
     "started_desc"
   );
@@ -104,6 +107,7 @@ export default function ObservabilityClient({ initialData }: Props) {
             },
           }
         );
+        console.log("API Response:", res.data);
 
         const deployments: Deployment[] = res.data.map((p) => {
           const name = p.name ?? "Untitled pipeline";
@@ -113,27 +117,27 @@ export default function ObservabilityClient({ initialData }: Props) {
           const status = (p.status ?? "draft") as Deployment["status"];
 
           // Use deployment_started_at if available, otherwise fall back to created_at
-          const startedAt = (p as any).deployment_started_at ?? p.created_at ?? p.updated_at ?? new Date().toISOString();
-          
+          const startedAt = p.deployment_started_at ?? p.created_at ?? p.updated_at ?? new Date().toISOString();
+
           // Duration should only be calculated if deployment has actually started
           // Only show duration for pipelines that have been deployed, are deploying, or failed
           let durationSec: number | null = null;
           const hasDeploymentStarted = status === "deploying" || status === "deployed" || status === "failed";
-          
+
           if (hasDeploymentStarted) {
             // Use deployment_duration_sec if available (actual deployment duration from backend)
-            durationSec = (p as any).deployment_duration_sec;
-            
+            durationSec = p.deployment_duration_sec ?? null;
+
             // If status is "deploying" and duration is not set yet, calculate live duration
             if (status === "deploying" && (durationSec === null || durationSec === undefined)) {
-              const deploymentStartTime = (p as any).deployment_started_at;
+              const deploymentStartTime = p.deployment_started_at;
               if (deploymentStartTime) {
                 const startMs = new Date(deploymentStartTime).getTime();
                 const nowMs = Date.now();
                 durationSec = Math.max(0, (nowMs - startMs) / 1000);
               }
             }
-            
+
             // If still no duration and status is deployed/failed, set to 0 (shouldn't happen but fallback)
             if ((durationSec === null || durationSec === undefined) && (status === "deployed" || status === "failed")) {
               durationSec = 0;
@@ -169,10 +173,10 @@ export default function ObservabilityClient({ initialData }: Props) {
     };
 
     fetchDeployments();
-    
+
     // Auto-refresh every 5 seconds to update duration for deploying pipelines
     const intervalId = setInterval(fetchDeployments, 5000);
-    
+
     return () => {
       clearInterval(intervalId);
     };
@@ -185,10 +189,10 @@ export default function ObservabilityClient({ initialData }: Props) {
       range === "24h"
         ? 24 * 60 * 60 * 1000
         : range === "7d"
-        ? 7 * 24 * 60 * 60 * 1000
-        : range === "30d"
-        ? 30 * 24 * 60 * 60 * 1000
-        : Infinity;
+          ? 7 * 24 * 60 * 60 * 1000
+          : range === "30d"
+            ? 30 * 24 * 60 * 60 * 1000
+            : Infinity;
 
     const rowsFiltered = rows.filter((d) => {
       const started = new Date(d.startedAt).getTime();
@@ -261,9 +265,8 @@ export default function ObservabilityClient({ initialData }: Props) {
           <span className="whitespace-nowrap">{label}:</span>
           <span className="font-semibold text-gray-800">{value}</span>
           <ChevronDown
-            className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${
-              open ? "rotate-180" : ""
-            }`}
+            className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${open ? "rotate-180" : ""
+              }`}
           />
         </button>
 
@@ -283,11 +286,10 @@ export default function ObservabilityClient({ initialData }: Props) {
                     onChange(opt);
                     setOpen(false);
                   }}
-                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${
-                    selected
-                      ? "bg-orange-50 text-orange-700"
-                      : "text-gray-700 hover:bg-teal-50 hover:text-teal-700"
-                  }`}
+                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${selected
+                    ? "bg-orange-50 text-orange-700"
+                    : "text-gray-700 hover:bg-teal-50 hover:text-teal-700"
+                    }`}
                 >
                   <span className="truncate">{String(opt)}</span>
                   {selected && <Check className="h-4 w-4" />}
@@ -398,9 +400,8 @@ export default function ObservabilityClient({ initialData }: Props) {
               title="Sort by Started"
             >
               <ArrowUpDown
-                className={`h-4 w-4 transition-transform duration-200 ${
-                  sort === "started_asc" ? "rotate-180" : ""
-                }`}
+                className={`h-4 w-4 transition-transform duration-200 ${sort === "started_asc" ? "rotate-180" : ""
+                  }`}
               />
               Started
             </button>
@@ -598,11 +599,10 @@ function FilterPill<T extends string>({
           <button
             key={String(opt)}
             onClick={() => onChange(opt)}
-            className={`rounded-full border px-2 py-0.5 text-xs transition-colors ${
-              opt === value
-                ? "border-orange-300 bg-orange-50 text-orange-700"
-                : "border-gray-200 bg-white text-gray-600 hover:border-orange-300 hover:text-orange-700"
-            }`}
+            className={`rounded-full border px-2 py-0.5 text-xs transition-colors ${opt === value
+              ? "border-orange-300 bg-orange-50 text-orange-700"
+              : "border-gray-200 bg-white text-gray-600 hover:border-orange-300 hover:text-orange-700"
+              }`}
           >
             {String(opt)}
           </button>
